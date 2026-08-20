@@ -7,6 +7,7 @@ class Event:
     HAZARD = 5
     EMERGENCY_STOP = 6
     COLLISION_WARNING = 7
+    EMERGENCY_VEHICLE = 8
 
 EVENT_NAMES = {v: k for k, v in Event.__dict__.items() if not k.startswith('_')}
 

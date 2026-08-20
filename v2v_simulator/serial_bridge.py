@@ -1,6 +1,7 @@
 import struct
 import time
 import serial
+import threading
 
 def pack_vehicle_state(packet):
     """
@@ -30,7 +31,8 @@ def pack_vehicle_state(packet):
     evt = int(packet.event)
     cnf = int(packet.confidence)
     
-    return struct.pack(fmt, vid, seq_num, ts, spd, acc, hdg, evt, cnf)
+    packed = struct.pack(fmt, vid, seq_num, ts, spd, acc, hdg, evt, cnf)
+    return b'\xAA\x55' + packed
 
 
 class ESP32SerialBridge:
@@ -41,6 +43,15 @@ class ESP32SerialBridge:
     def __init__(self, network, port='/dev/ttyUSB0', baudrate=115200):
         self.vehicle_id = "BRIDGE"
         self.network = network
+        
+        import serial.tools.list_ports
+        available = [p.device for p in serial.tools.list_ports.comports()]
+        if port not in available:
+            usb_ports = [p for p in available if 'USB' in p or 'ACM' in p]
+            if usb_ports:
+                print(f"[SerialBridge] Port {port} not found, auto-detecting: {usb_ports[0]}")
+                port = usb_ports[0]
+                
         self.port = port
         self.baudrate = baudrate
         self.ser = None
@@ -55,6 +66,29 @@ class ESP32SerialBridge:
         except serial.SerialException as e:
             print(f"[SerialBridge] Warning: Could not open serial port {self.port}: {e}")
             print("[SerialBridge] Running without physical ESP32 connection (Dry run).")
+            
+        self.mpu_accel = None
+        self.mpu_gyro = None
+        self.running = True
+        
+        if self.ser:
+            self.read_thread = threading.Thread(target=self._read_loop, daemon=True)
+            self.read_thread.start()
+
+    def _read_loop(self):
+        while self.running:
+            try:
+                if self.ser.in_waiting:
+                    line = self.ser.readline().decode('ascii', errors='ignore').strip()
+                    if line.startswith("MPU:"):
+                        parts = line[4:].split(',')
+                        if len(parts) >= 6:
+                            self.mpu_accel = (float(parts[0]), float(parts[1]), float(parts[2]))
+                            self.mpu_gyro = (float(parts[3]), float(parts[4]), float(parts[5]))
+                else:
+                    time.sleep(0.01)
+            except Exception as e:
+                time.sleep(0.1)
 
     def receive_packet(self, data_str):
         from v2v_simulator.v2v_network import VehicleStatePacket
@@ -76,6 +110,7 @@ class ESP32SerialBridge:
             print(f"[SerialBridge] Would send {len(packed_data)} bytes for vehicle {packet.vehicle_id}")
 
     def close(self):
+        self.running = False
         if self.ser and self.ser.is_open:
             self.ser.close()
 
