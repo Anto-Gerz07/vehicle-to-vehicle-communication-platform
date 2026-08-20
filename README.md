@@ -17,8 +17,31 @@ A decentralized communication system designed to enable vehicles to exchange rea
 - `v2v-web-simulator/` - A modern web-based monitoring dashboard for telemetry and safety logs.
 - `esp32_firmware/` - Arduino `.ino` sketches for flashing the physical ESP32 V2V transceiver nodes.
 
-## Usage
+## Setup and Installation
 
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/shaik-hasan-AS/V2V.git
+   cd V2V
+   ```
+
+2. **Install Python dependencies**:
+   Ensure you have Python 3.8+ installed. It is recommended to use a virtual environment.
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows use: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+3. **Install Web Dashboard dependencies** (Optional, for web-simulator):
+   Ensure you have Node.js and npm installed.
+   ```bash
+   cd v2v-web-simulator
+   npm install
+   cd ..
+   ```
+
+## Usage
 ### 1. Interactive Desktop Simulator
 Run the local Tkinter simulator to test physics, ML anomaly detection, and vehicle interactions:
 ```bash
