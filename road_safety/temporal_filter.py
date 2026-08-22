@@ -6,7 +6,7 @@ This module stabilises them:
 
   LaneFilter      — majority vote over last N frames
   ConfidenceFilter — EMA + confirmation counter for probability-valued outputs
-                     (used for both pothole and flood)
+                     (used for pothole confidence scores)
 
 All state is kept here; the detectors themselves are stateless per-frame.
 """
@@ -58,7 +58,7 @@ class ConfidenceFilter:
     """
     EMA smoothing + consecutive-frame confirmation for probability outputs.
 
-    Used for both pothole and flood confidence scores.
+    Used for pothole confidence scores.
 
     A detection is 'confirmed' when the smoothed EMA score stays above
     `threshold` for at least `confirm_frames` consecutive frames.

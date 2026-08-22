@@ -7,7 +7,7 @@ Protocol:
   - Reconnects automatically if the serial link drops
 
 Example packet sent:
-  {"lane":"MIDDLE","pothole":0.0,"flood":0.0,"alert":"NONE","ts":1724256000}\\n
+    {"lane":"MIDDLE","pothole":0.0,"alert":"NONE","ts":1724256000}\\n
 """
 
 import json
