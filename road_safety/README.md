@@ -1,88 +1,105 @@
 # Road Safety Vision Pipeline
 
 Real-time webcam-based road hazard detection system.
-Detects **lane position**, **potholes**, and **flooded roads** on a laptop GPU
-and sends compact results to an ESP32 over USB serial for V2V broadcasting.
+Detects **lane position**, **potholes**, and **flooded roads** on a laptop GPU and sends compact results to an ESP32 over USB serial for V2V broadcasting.
 
 ---
 
 ## Architecture
 
 ```
-Webcam (720p / 1080p)
+Webcam (720p @ 15 FPS)
         │
         ▼
   ┌─────────────┐
   │  camera.py  │  Frame capture + FPS tracking
   └──────┬──────┘
          │ raw BGR frames
-    ┌────┴────────────────┐
-    │                     │
-┌───▼──────┐   ┌──────────▼────────┐   ┌─────────────▼──────┐
-│  lane    │   │   pothole         │   │   flood             │
-│ detector │   │   detector        │   │   detector          │
-│ (OpenCV) │   │   (YOLOv8-nano)   │   │   (MobileNetV2)    │
-└───┬──────┘   └──────────┬────────┘   └─────────────┬──────┘
-    │                     │                           │
-    └──────────┬──────────┘───────────────────────────┘
-               ▼
-      temporal_filter.py
-        (LaneFilter + ConfidenceFilter)
-               │
-               ▼
-       decision_engine.py
-               │
-        ┌──────┴──────┐
-        │             │
-  HUD Display    serial_esp32.py
-  (OpenCV)           │
-                      ▼
-                   ESP32
+    ┌────┴─────────────────────┐
+    │                          │
+┌───▼──────┐   ┌───────────────▼──────┐   ┌─────────────▼──────┐
+│  lane    │   │   pothole            │   │   flood             │
+│ detector │   │   detector           │   │   detector          │
+│ (OpenCV) │   │   (YOLOv8-nano)      │   │   (MobileNetV2)    │
+│          │   │   ROI: bottom 55%    │   │                     │
+└───┬──────┘   └───────────┬──────────┘   └──────────┬──────────┘
+    │                      │                          │
+    └─────────────┬─────────┘──────────────────────────┘
+                  ▼
+        temporal_filter.py
+          (LaneFilter + ConfidenceFilter)
+                 │
+                 ▼
+         decision_engine.py
+                 │
+          ┌──────┴──────┐
+          │             │
+    HUD Display    serial_esp32.py
+    (OpenCV)            │
+                        ▼
+                     ESP32
 ```
+
+---
+
+## Models
+
+| Model | Architecture | Accuracy | Dataset |
+|-------|-------------|----------|---------|
+| Pothole detector | YOLOv8-nano | **88.4% mAP50** | Mendeley + Pascal VOC dataset (665 images, 80/20 split) |
+| Flood classifier | MobileNetV2 | **100% val acc** | Roboflow floods dataset + dry road images |
+
+Both models are trained via transfer learning from pre-trained ImageNet/COCO weights.
 
 ---
 
 ## Quick Start
 
-### 1. Activate the environment
-
-The virtual environment is pre-configured in `.venv/` with Python 3.12 + CUDA 12.1 torch.
+### 1. Set up the environment
 
 ```bash
 cd road_safety
+python -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Or run directly without activating:
+Or with the existing `.venv`:
 ```bash
 .venv/bin/python main.py
 ```
 
-### 2. Train the models (for full accuracy)
+### 2. Train the models
 
-#### Pothole detector (YOLOv8-nano, Roboflow dataset)
+#### Pothole detector (YOLOv8-nano)
+
+Download the dataset from [Mendeley Data](https://data.mendeley.com/datasets/tp95cdvgm8/1) and place `Potholes.zip` in `datasets/`, then:
+
 ```bash
-export ROBOFLOW_API_KEY=your_key_here   # free account at roboflow.com
 .venv/bin/python scripts/train_pothole.py
 ```
-This downloads the dataset, fine-tunes for ~50 epochs, and saves `models/pothole.pt`.
-Until trained, the system runs with `yolov8n.pt` base (general object detector).
+
+Trains for 50 epochs and saves `models/pothole.pt`. To fine-tune further on new data, just place a new zip in `datasets/` and re-run — the script automatically resumes from existing weights.
 
 #### Flood classifier (MobileNetV2)
-```bash
-# 1. Download a flood/road dataset from:
-#    https://www.kaggle.com/datasets/search?q=flood+road
-#    https://universe.roboflow.com  (search "flooded road")
-#
-# 2. Arrange it as:
-#    datasets/flood/train/normal/
-#    datasets/flood/train/flooded/
-#    datasets/flood/val/normal/
-#    datasets/flood/val/flooded/
 
+Arrange images as:
+```
+datasets/flood/
+├── train/
+│   ├── flooded/
+│   └── normal/
+└── val/
+    ├── flooded/
+    └── normal/
+```
+
+Then run:
+```bash
 .venv/bin/python scripts/train_flood.py
 ```
-Saves `models/flood.pth`. Until trained, flood detection returns 0.0.
+
+Saves `models/flood.pth`. The script will auto-scrape images if the folder is missing.
 
 ### 3. Run the pipeline
 
@@ -101,22 +118,24 @@ Saves `models/flood.pth`. Until trained, flood detection returns 0.0.
 
 ## Configuration
 
-All tunable parameters are in `config.py`:
+All tunable parameters live in `config.py`:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `CAMERA_INDEX` | `0` | Webcam device index |
-| `POTHOLE_CONF_THRESHOLD` | `0.45` | Min YOLO confidence |
-| `FLOOD_CONF_THRESHOLD` | `0.55` | Min flood probability |
-| `SERIAL_PORT` | `/dev/ttyUSB0` | ESP32 serial port |
-| `SERIAL_ENABLED` | `True` | Disable if no hardware |
-| `LANE_SMOOTHING_FRAMES` | `15` | Temporal vote window |
+| `CAMERA_FPS` | `15` | Target capture FPS |
+| `POTHOLE_CONF_THRESHOLD` | `0.60` | Min YOLO confidence to report |
+| `POTHOLE_EVERY_N_FRAMES` | `2` | Run pothole detection every N frames |
+| `FLOOD_CONF_THRESHOLD` | `0.75` | Min flood probability to alert |
+| `FLOOD_EVERY_N_FRAMES` | `5` | Run flood detection every N frames |
+| `SERIAL_PORT` | `/dev/ttyUSB0` | ESP32 serial port (update to your device) |
+| `SERIAL_ENABLED` | `False` | Set `True` when ESP32 is connected |
 
 ---
 
-## ESP32 Packet Format
+## ESP32 Serial Packet Format
 
-One JSON object per line at 115200 baud:
+One JSON object per line at **115200 baud**:
 
 ```json
 {"lane":"MIDDLE","pothole":0.91,"flood":0.0,"alert":"POTHOLE","ts":1724256000}
@@ -135,7 +154,6 @@ One JSON object per line at 115200 baud:
 ## Running Tests
 
 ```bash
-cd road_safety
 pytest tests/ -v
 ```
 
@@ -149,16 +167,18 @@ road_safety/
 ├── config.py                # All tunable constants
 ├── camera.py                # Webcam capture
 ├── lane_detector.py         # Classical CV lane detection
-├── pothole_detector.py      # YOLOv8-nano inference
-├── flood_detector.py        # MobileNetV2 classifier
-├── temporal_filter.py       # Rolling-window smoothers
+├── pothole_detector.py      # YOLOv8-nano inference (ROI-cropped)
+├── flood_detector.py        # MobileNetV2 binary classifier
+├── temporal_filter.py       # Rolling-window EMA smoothers
 ├── decision_engine.py       # Multi-modal fusion + alert logic
 ├── serial_esp32.py          # JSON-over-serial ESP32 bridge
 ├── requirements.txt
 ├── scripts/
-│   ├── train_pothole.py     # Fine-tune pothole detector
-│   └── train_flood.py       # Train flood classifier
+│   ├── train_pothole.py     # Fine-tune pothole detector (YOLOv8)
+│   └── train_flood.py       # Train flood classifier (MobileNetV2)
 ├── models/                  # Trained weights (git-ignored)
+│   ├── pothole.pt           # YOLOv8-nano fine-tuned weights
+│   └── flood.pth            # MobileNetV2 fine-tuned weights
 ├── datasets/                # Training data (git-ignored)
 ├── recordings/              # Saved frames/video (git-ignored)
 └── tests/
@@ -169,11 +189,13 @@ road_safety/
 
 ---
 
-## Processing Budget (RTX 4060, 720p input)
+## Processing Budget (RTX 4060 Laptop, 720p input)
 
-| Module | Target FPS | Cadence |
-|--------|-----------|---------|
-| Camera capture | 30 | Every frame |
-| Lane detection (CV) | 30 | Every frame |
-| Pothole detection (YOLO) | ~10 | Every 3rd frame |
-| Flood detection (MobileNetV2) | ~5 | Every 6th frame |
+| Module | Cadence | Effective FPS |
+|--------|---------|--------------|
+| Camera capture | Every frame | 15 FPS |
+| Lane detection (CV) | Every frame | 15 FPS |
+| Pothole detection (YOLOv8) | Every 2nd frame | ~7.5 FPS |
+| Flood detection (MobileNetV2) | Every 5th frame | ~3 FPS |
+
+> **Note:** Pothole detection processes only the **bottom 55% of the frame** (road surface area), approximately halving inference time with no accuracy loss.
