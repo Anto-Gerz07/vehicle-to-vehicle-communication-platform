@@ -86,8 +86,9 @@ class Camera:
         cap = cv2.VideoCapture(config.CAMERA_INDEX)
         if not cap.isOpened():
             raise RuntimeError(
-                f"Cannot open camera at index {config.CAMERA_INDEX}. "
-                "Check that the webcam is connected."
+                f"Cannot open video source {config.CAMERA_INDEX!r}. "
+                "For a webcam, check that it is connected; for a video file, "
+                "check that the path exists and is readable."
             )
         cap.set(cv2.CAP_PROP_FRAME_WIDTH,  config.CAMERA_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.CAMERA_HEIGHT)

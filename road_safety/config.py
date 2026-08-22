@@ -8,7 +8,7 @@ through individual modules.
 # ---------------------------------------------------------------------------
 # Camera
 # ---------------------------------------------------------------------------
-CAMERA_INDEX = "datasets/pov_ your boy says _follow me I know the way_ PART 2.mp4"
+CAMERA_INDEX = 0              # Webcam index; use a valid video path for file input
 CAMERA_WIDTH  = 1280       # Capture width in pixels
 CAMERA_HEIGHT = 720        # Capture height in pixels
 CAMERA_FPS    = 15         # Requested capture FPS (reduced to save compute)
@@ -16,9 +16,9 @@ CAMERA_FPS    = 15         # Requested capture FPS (reduced to save compute)
 # ---------------------------------------------------------------------------
 # Processing cadence  (run every N-th frame to manage GPU budget)
 # ---------------------------------------------------------------------------
-LANE_EVERY_N_FRAMES    = 1   # Lane detection: every frame (~15 FPS)
-POTHOLE_EVERY_N_FRAMES = 2   # Pothole detection: every 2nd frame (~7.5 FPS)
-FLOOD_EVERY_N_FRAMES   = 5   # Flood detection: every 5th frame (~3 FPS)
+LANE_EVERY_N_FRAMES    = 2   # Lane detection: every 2nd frame
+POTHOLE_EVERY_N_FRAMES = 3   # Pothole detection: every 3rd frame
+
 
 # ---------------------------------------------------------------------------
 # Lane detection (classical CV)
@@ -41,17 +41,10 @@ POTHOLE_BASE_MODEL   = "yolov8n.pt"         # Fallback base weights
 POTHOLE_CONF_THRESHOLD = 0.60               # Min confidence to report (increased)
 POTHOLE_IOU_THRESHOLD  = 0.45               # NMS IoU threshold
 POTHOLE_SMOOTH_FRAMES  = 7                  # EMA window size (increased)
-POTHOLE_CONFIRM_FRAMES = 3                  # Frames above threshold to confirm
+POTHOLE_CONFIRM_FRAMES = 3 
+POTHOLE_IMAGE_SIZE = 512                 # Frames above threshold to confirm
 
 # ---------------------------------------------------------------------------
-# Flood detection (MobileNetV2 binary classifier)
-# ---------------------------------------------------------------------------
-FLOOD_MODEL_PATH     = "models/flood.pth"   # Fine-tuned weights
-FLOOD_CONF_THRESHOLD = 0.75                 # Min confidence to report flooded (increased)
-FLOOD_SMOOTH_FRAMES  = 8                    # EMA window size (increased)
-FLOOD_CONFIRM_FRAMES = 3                    # Frames above threshold to confirm
-FLOOD_INPUT_SIZE     = 224                  # Model input resolution
-
 # ---------------------------------------------------------------------------
 # ESP32 Serial
 # ---------------------------------------------------------------------------
@@ -68,3 +61,5 @@ DISPLAY_WINDOW_NAME = "Road Safety — V2V"
 DISPLAY_SCALE       = 1.0           # Scale factor for the output window
 HUD_FONT_SCALE      = 0.65
 HUD_THICKNESS       = 2
+PROCESS_WIDTH = 960
+PROCESS_HEIGHT = 540
