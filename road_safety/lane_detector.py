@@ -4,7 +4,7 @@ lane_detector.py — Classical CV lane position classifier.
 No neural network required.  Uses Canny edges + probabilistic Hough
 lines to find lane markings and classify the vehicle's position as:
 
-    LEFT | MIDDLE | RIGHT | SINGLE | UNKNOWN
+    LEFT | MIDDLE | RIGHT | ONE-WAY | UNKNOWN
 
 Pipeline per the ideation doc:
   1. Crop ROI to the lower portion of the frame (road region)
@@ -26,7 +26,7 @@ import config
 
 @dataclass
 class LaneResult:
-    lane: str = "UNKNOWN"      # LEFT | MIDDLE | RIGHT | SINGLE | UNKNOWN
+    lane: str = "UNKNOWN"      # LEFT | MIDDLE | RIGHT | ONE-WAY | UNKNOWN
     left_x: Optional[int] = None    # x-coordinate of left boundary at bottom
     right_x: Optional[int] = None   # x-coordinate of right boundary at bottom
     center_x: Optional[int] = None  # midpoint of detected lane
@@ -144,22 +144,24 @@ class LaneDetector:
         """Fit a single representative line from a group, extended to frame bottom."""
         if not lines:
             return None
-        slopes = [l[0] for l in lines]
-        x1s    = [l[1] for l in lines]
-        y1s    = [l[2] for l in lines]
 
-        slope  = float(np.mean(slopes))
-        x1_avg = float(np.mean(x1s))
-        y1_avg = float(np.mean(y1s))
+        # Gather all endpoints
+        x_pts = []
+        y_pts = []
+        for l in lines:
+            x_pts.extend([l[1], l[3]])
+            y_pts.extend([l[2], l[4]])
+
+        # Fit x = m*y + c (more stable for near-vertical lines)
+        poly = np.polyfit(y_pts, x_pts, 1)
+        m, c = poly[0], poly[1]
 
         # Extend to bottom of frame (y = h) and to ROI top
         y_bot = h
         y_top = int(h * config.LANE_ROI_TOP_FRACTION)
 
-        if slope == 0:
-            return None
-        x_bot = int(x1_avg + (y_bot - y1_avg) / slope)
-        x_top = int(x1_avg + (y_top - y1_avg) / slope)
+        x_bot = int(m * y_bot + c)
+        x_top = int(m * y_top + c)
 
         return (x_top, y_top, x_bot, y_bot)
 
@@ -170,7 +172,6 @@ class LaneDetector:
             
         # Create a boolean mask for the y-axis
         y_mask = np.zeros(h, dtype=bool)
-        min_y, max_y = h, 0
         
         for (slope, x1, y1, x2, y2) in lines:
             y_start = min(y1, y2)
@@ -180,16 +181,23 @@ class LaneDetector:
             y_end = max(0, min(h, y_end))
             if y_start < y_end:
                 y_mask[y_start:y_end] = True
-            min_y = min(min_y, y_start)
-            max_y = max(max_y, y_end)
             
-        span = max_y - min_y
-        if span <= 0:
+        # Instead of calculating coverage relative to the detected lines' min/max span,
+        # calculate it relative to the expected region of interest (ROI) height.
+        # This prevents a single large perspective-distorted dash from reporting 100% coverage.
+        roi_top = int(h * config.LANE_ROI_TOP_FRACTION)
+        roi_bottom = h
+        roi_span = roi_bottom - roi_top
+        
+        if roi_span <= 0:
             return False
             
-        coverage = np.sum(y_mask[min_y:max_y]) / span
-        # Dashed lines typically have < 50% coverage. Solid lines > 70%.
-        return coverage > 0.60
+        coverage = np.sum(y_mask[roi_top:roi_bottom]) / roi_span
+        
+        # Dashed lines (even with massive perspective-distorted foreground dashes) 
+        # will have large gaps, reducing their coverage over the full ROI to < 60%.
+        # Solid lines should cover most of the ROI (> 65%).
+        return coverage > 0.65
 
     def _classify(
         self,
@@ -205,9 +213,9 @@ class LaneDetector:
             return LaneResult(lane="UNKNOWN")
 
         if left_fit is None or right_fit is None:
-            # Only one lane boundary visible → single-lane or edge case
+            # Only one lane boundary visible → edge case
             return LaneResult(
-                lane="SINGLE",
+                lane="UNKNOWN",
                 left_x=left_fit[2]  if left_fit  else None,
                 right_x=right_fit[2] if right_fit else None,
             )
@@ -225,7 +233,7 @@ class LaneDetector:
         right_solid = self._is_solid(right_lines, h)
 
         if left_solid and right_solid:
-            lane = "SINGLE"  # Boxed in by two solid lines (1-lane road)
+            lane = "ONE-WAY"  # Boxed in by two solid lines (1-lane road)
         elif left_solid and not right_solid:
             lane = "LEFT"    # Solid on left, dashed on right (Left lane)
         elif not left_solid and not right_solid:

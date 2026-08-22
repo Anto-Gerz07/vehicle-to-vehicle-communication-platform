@@ -143,7 +143,7 @@ One JSON object per line at **115200 baud**:
 
 | Field | Values |
 |-------|--------|
-| `lane` | `LEFT` \| `MIDDLE` \| `RIGHT` \| `SINGLE` \| `UNKNOWN` \| `UNRELIABLE` |
+| `lane` | `LEFT` \| `MIDDLE` \| `RIGHT` \| `ONE-WAY` \| `UNKNOWN` \| `UNRELIABLE` |
 | `pothole` | `0.0` (none) or EMA confidence when confirmed |
 | `flood` | `0.0` (none) or EMA confidence when confirmed |
 | `alert` | `NONE` \| `POTHOLE` \| `FLOOD` \| `BOTH` |

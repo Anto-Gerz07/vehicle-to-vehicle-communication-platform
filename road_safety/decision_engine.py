@@ -2,7 +2,7 @@
 decision_engine.py — Combines stabilised perception outputs into a result packet.
 
 Inputs (already temporally smoothed):
-  - lane:    str   — LEFT | MIDDLE | RIGHT | SINGLE | UNKNOWN
+  - lane:    str   — LEFT | MIDDLE | RIGHT | ONE-WAY | UNKNOWN
   - pothole: (bool, float)  — (confirmed, ema_confidence)
   - flood:   (bool, float)  — (confirmed, ema_confidence)
 

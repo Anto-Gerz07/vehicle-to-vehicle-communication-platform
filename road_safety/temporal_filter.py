@@ -24,7 +24,7 @@ class LaneFilter:
     Prevents single noisy frames from causing lane switches.
     """
 
-    VALID_LANES = {"LEFT", "MIDDLE", "RIGHT", "SINGLE", "UNKNOWN"}
+    VALID_LANES = {"LEFT", "MIDDLE", "RIGHT", "ONE-WAY", "UNKNOWN"}
 
     def __init__(self, window: int = config.LANE_SMOOTHING_FRAMES):
         self._window = window

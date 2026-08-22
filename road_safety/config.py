@@ -8,7 +8,7 @@ through individual modules.
 # ---------------------------------------------------------------------------
 # Camera
 # ---------------------------------------------------------------------------
-CAMERA_INDEX = 0          # Webcam device index (0 = default camera)
+CAMERA_INDEX = "datasets/pov_ your boy says _follow me I know the way_ PART 2.mp4"
 CAMERA_WIDTH  = 1280       # Capture width in pixels
 CAMERA_HEIGHT = 720        # Capture height in pixels
 CAMERA_FPS    = 15         # Requested capture FPS (reduced to save compute)
