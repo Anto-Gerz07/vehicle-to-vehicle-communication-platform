@@ -5,19 +5,11 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <TinyGPS++.h>
-#include <SPI.h>
-#include <LoRa.h>
+
 // Removed Adafruit_MPU6050 for MPU6500 raw I2C compatibility
 #include <esp_idf_version.h>
 #include <Fonts/FreeSans9pt7b.h>
 
-// LoRa VSPI Pins
-#define LORA_SCK 18
-#define LORA_MISO 19
-#define LORA_MOSI 23
-#define LORA_SS 5
-#define LORA_RST 13
-#define LORA_DIO0 4
 
 /*
  * V2V Hardware Node - Hybrid PC Bridge & Transceiver
@@ -124,8 +116,7 @@ float currentSpeedDisplay = 0.0;
 float currentBarWidth = 0.0;
 unsigned long bootTime = 0;
 
-bool lora_ok = false;
-unsigned long last_lora_tx = 0;
+
 
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 void OnDataSent(const wifi_tx_info_t *info, esp_now_send_status_t status) {
@@ -157,16 +148,7 @@ void setup() {
   Serial.begin(115200);
   GPS.begin(9600, SERIAL_8N1, RXD2, TXD2);
   
-  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
-  LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
-  if (!LoRa.begin(433E6)) {
-    Serial.println("LoRa initialization failed! Check wiring.");
-    lora_ok = false;
-  } else {
-    Serial.println("LoRa initialized successfully.");
-    LoRa.receive(); // Put radio into continuous receive mode
-    lora_ok = true;
-  }
+
   
   if(!display.begin(SCREEN_ADDRESS, true)) {
     Serial.println(F("SH1106 allocation failed"));
@@ -463,25 +445,7 @@ void drawStateWarning(unsigned long currentMillis) {
 void loop() {
   unsigned long currentMillis = millis();
   
-  // Handle LoRa Reception
-  if (lora_ok) {
-    int packetSize = LoRa.parsePacket();
-    if (packetSize) {
-      Serial.print("LoRa Rx! Size: ");
-      Serial.println(packetSize);
-      if (packetSize == sizeof(VehicleStatePacket)) {
-        VehicleStatePacket incoming;
-        LoRa.readBytes((uint8_t*)&incoming, sizeof(incoming));
-        if (incoming.event > 0 && incoming.vehicle_id != myState.vehicle_id) {
-          memcpy(&receivedAlert, &incoming, sizeof(incoming));
-          alertReceivedTime = millis();
-          currentState = STATE_WARNING;
-        }
-      } else {
-        Serial.println("LoRa packet size mismatch!");
-      }
-    }
-  }
+
   
   // Determine event for Buzzer/LEDs (prioritize incoming warning over normal local state)
   uint8_t activeEventBuzzer = myState.event;
@@ -536,18 +500,8 @@ void loop() {
             myState.longitude = 0.0;
           }
           
-          // Broadcast via ESP-NOW (Temporarily disabled for LoRa testing)
-          // esp_now_send(broadcastAddress, (uint8_t *) &myState, sizeof(myState));
-          
-          // Broadcast via LoRa (Throttled to 5Hz to prevent locking up the radio)
-          if (lora_ok && (currentMillis - last_lora_tx > 200 || myState.event > 0)) {
-            last_lora_tx = currentMillis;
-            LoRa.beginPacket();
-            LoRa.write((uint8_t*)&myState, sizeof(myState));
-            LoRa.endPacket();
-            LoRa.receive(); // Return to receive mode!
-            Serial.println("LoRa Tx");
-          }
+          // Broadcast via ESP-NOW
+          esp_now_send(broadcastAddress, (uint8_t *) &myState, sizeof(myState));
         }
       }
     }
@@ -573,22 +527,13 @@ void loop() {
   
   // Standalone Broadcasting (10 Hz)
   static unsigned long lastStandaloneBroadcast = 0;
-  if (currentState == STATE_STANDALONE && currentMillis - lastStandaloneBroadcast > 100) {
+  if (currentState == STATE_STANDALONE && currentMillis - lastStandaloneBroadcast > 200) {
     lastStandaloneBroadcast = currentMillis;
     myState.speed_x100 = gps.speed.isValid() ? (int16_t)(gps.speed.mps() * 100) : 0;
     myState.heading = gps.course.isValid() ? (int16_t)gps.course.deg() : 0;
     myState.latitude = gps.location.isValid() ? gps.location.lat() : 0.0;
     myState.longitude = gps.location.isValid() ? gps.location.lng() : 0.0;
-    // esp_now_send(broadcastAddress, (uint8_t *) &myState, sizeof(myState));
-    
-    // Broadcast via LoRa
-    if (lora_ok) {
-      LoRa.beginPacket();
-      LoRa.write((uint8_t*)&myState, sizeof(myState));
-      LoRa.endPacket();
-      LoRa.receive(); // Return to receive mode!
-      Serial.println("LoRa Tx");
-    }
+    esp_now_send(broadcastAddress, (uint8_t *) &myState, sizeof(myState));
   }
   
   // Constantly feed the GPS parser

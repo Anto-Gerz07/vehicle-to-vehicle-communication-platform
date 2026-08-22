@@ -18,16 +18,11 @@ The ESP32 acts as a serial bridge transceiver. It uses a 1.3" OLED display (SH11
 | **LED Red**       | GPIO 26              | Status LED (Harsh Brake / Crash)          |
 | **Buzzer**        | GPIO 14              | Passive buzzer for auditory alerts        |
 | **GPS NEO-6M**    | 5V / VIN             | Power for GPS (Requires 5V for stability) |
-| **LoRa (VSPI)**   | GPIO 18 (SCK)        | SPI Clock for LoRa SX1278                 |
-| **LoRa (VSPI)**   | GPIO 19 (MISO)       | SPI MISO for LoRa SX1278                  |
-| **LoRa (VSPI)**   | GPIO 23 (MOSI)       | SPI MOSI for LoRa SX1278                  |
-| **LoRa (VSPI)**   | GPIO 5 (NSS/CS)      | SPI Chip Select for LoRa SX1278           |
-| **LoRa Reset**    | GPIO 13              | LoRa Module Reset Pin                     |
-| **LoRa DIO0**     | GPIO 4               | LoRa Interrupt (RX Done) Pin              |
-| **VCC**           | 3.3V                 | Power for OLED, MPU6500, and LoRa         |
+
+| **VCC**           | 3.3V                 | Power for OLED and MPU6500                |
 | **GND**           | GND                  | Common ground for all components          |
 
-*(Note: The OLED uses the default I2C bus on pins 21/22. The MPU6500 uses a secondary hardware I2C bus (`Wire1`) assigned to pins 32/33. The LoRa SX1278 module uses the default VSPI bus on pins 18/19/23 with CS on pin 5 to keep it separate.)*
+*(Note: The OLED uses the default I2C bus on pins 21/22. The MPU6500 uses a secondary hardware I2C bus (`Wire1`) assigned to pins 32/33.)*
 
 ## Future Expansion
 Later, you can add more hardware such as:
