@@ -1,0 +1,26 @@
+# Road Safety Vision Pipeline — Python dependencies
+#
+# Install everything:
+#   pip install -r requirements.txt
+#
+# GPU acceleration (RTX 4060, CUDA 12.x):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# --- Core vision ---
+opencv-python>=4.9.0
+numpy>=1.26.0
+Pillow>=10.0.0
+
+# --- ML inference ---
+torch>=2.2.0
+torchvision>=0.17.0
+ultralytics>=8.2.0        # YOLOv8 (auto-downloads yolov8n.pt on first use)
+
+# --- Serial communication ---
+pyserial>=3.5
+
+# --- Dataset download ---
+roboflow>=1.1.0           # Only needed for scripts/train_pothole.py
+
+# --- Testing ---
+pytest>=8.0.0
