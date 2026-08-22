@@ -1,7 +1,7 @@
 import json
 
 class VehicleStatePacket:
-    def __init__(self, vehicle_id, seq, timestamp, speed, acceleration, heading, event, confidence):
+    def __init__(self, vehicle_id, seq, timestamp, speed, acceleration, heading, event, confidence, latitude=0.0, longitude=0.0):
         self.vehicle_id = vehicle_id
         self.seq = seq
         self.timestamp = timestamp
@@ -10,6 +10,8 @@ class VehicleStatePacket:
         self.heading = heading
         self.event = event
         self.confidence = confidence
+        self.latitude = latitude
+        self.longitude = longitude
 
     def to_json(self):
         return json.dumps(self.__dict__)

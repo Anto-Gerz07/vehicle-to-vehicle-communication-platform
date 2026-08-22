@@ -16,9 +16,11 @@ def pack_vehicle_state(packet):
     h: signed short (2 bytes) - Heading
     B: unsigned char (1 byte) - Event
     B: unsigned char (1 byte) - Confidence
-    Total: 15 bytes
+    f: float (4 bytes) - Latitude
+    f: float (4 bytes) - Longitude
+    Total: 23 bytes
     """
-    fmt = '<cHIhhhBB'
+    fmt = '<cHIhhhBBff'
     
     vid = str(packet.vehicle_id)[0].encode('ascii')
     seq_num = packet.seq & 0xFFFF
@@ -30,8 +32,10 @@ def pack_vehicle_state(packet):
     hdg = int(packet.heading)
     evt = int(packet.event)
     cnf = int(packet.confidence)
+    lat = float(getattr(packet, 'latitude', 0.0))
+    lon = float(getattr(packet, 'longitude', 0.0))
     
-    packed = struct.pack(fmt, vid, seq_num, ts, spd, acc, hdg, evt, cnf)
+    packed = struct.pack(fmt, vid, seq_num, ts, spd, acc, hdg, evt, cnf, lat, lon)
     return b'\xAA\x55' + packed
 
 
@@ -69,6 +73,13 @@ class ESP32SerialBridge:
             
         self.mpu_accel = None
         self.mpu_gyro = None
+        self.gps_lat = None
+        self.gps_lon = None
+        self.gps_speed = 0.0
+        self.gps_heading = 0.0
+        self.gps_alt = 0.0
+        self.gps_sats = 0
+        self.gps_status = 'NO_LOCK'
         self.running = True
         
         if self.ser:
@@ -85,6 +96,27 @@ class ESP32SerialBridge:
                         if len(parts) >= 6:
                             self.mpu_accel = (float(parts[0]), float(parts[1]), float(parts[2]))
                             self.mpu_gyro = (float(parts[3]), float(parts[4]), float(parts[5]))
+                    elif line.startswith("GPS:"):
+                        parts = line[4:].split(',')
+                        if len(parts) >= 6:
+                            self.gps_lat = float(parts[0])
+                            self.gps_lon = float(parts[1])
+                            self.gps_speed = float(parts[2])
+                            self.gps_heading = float(parts[3])
+                            self.gps_alt = float(parts[4])
+                            self.gps_sats = int(parts[5])
+                        elif len(parts) >= 2:
+                            self.gps_lat = float(parts[0])
+                            self.gps_lon = float(parts[1])
+                    elif line.startswith("GPS_ERR:"):
+                        err_parts = line.split(':')
+                        self.gps_status = err_parts[1].strip()
+                        if len(err_parts) > 2:
+                            self.gps_sats = int(err_parts[2].strip())
+                        self.gps_lat = None # Force UI to show status instead of old valid coordinates
+                    else:
+                        if line.strip():
+                            print(f"[ESP32] {line}")
                 else:
                     time.sleep(0.01)
             except Exception as e:

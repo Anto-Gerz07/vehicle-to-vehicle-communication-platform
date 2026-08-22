@@ -13,6 +13,18 @@ def heading_divergence(h1, h2):
         diff = 360 - diff
     return diff
 
+def haversine(lat1, lon1, lat2, lon2):
+    """Returns the great-circle distance between two points on a sphere in meters."""
+    R = 6371000.0 # Earth radius in meters
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    
+    a = math.sin(dphi/2.0)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlam/2.0)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
 class RiskEngine:
     def __init__(self):
         self.neighbor_table = {}
@@ -44,9 +56,20 @@ class RiskEngine:
             # Both cars are roughly co-directional — compute closing speed
             # Component of relative velocity along the line of approach
             closing_speed = local_speed_ms - neighbor_speed_ms
+            
+            # --- True GPS Distance Calculation ---
+            local_lat = local_state.get('latitude', 0.0)
+            local_lon = local_state.get('longitude', 0.0)
+            neighbor_lat = getattr(packet, 'latitude', 0.0)
+            neighbor_lon = getattr(packet, 'longitude', 0.0)
+            
+            if local_lat != 0.0 and neighbor_lat != 0.0:
+                distance = haversine(local_lat, local_lon, neighbor_lat, neighbor_lon)
+            else:
+                distance = simulated_distance
 
             if closing_speed > 0.1:  # Only if we're actually closing in
-                ttc = simulated_distance / closing_speed
+                ttc = distance / closing_speed
             else:
                 ttc = float('inf')
 
