@@ -84,7 +84,7 @@ class LaneDetector:
         self._draw_lines(debug, right_fit, (0, 100, 255), h)
 
         # 6. Classify
-        result = self._classify(left_fit, right_fit, w, h)
+        result = self._classify(left_lines, right_lines, left_fit, right_fit, w, h)
         result.debug_frame = debug
 
         # Overlay ROI boundary
@@ -163,16 +163,44 @@ class LaneDetector:
 
         return (x_top, y_top, x_bot, y_bot)
 
+    def _is_solid(self, lines: list, h: int) -> bool:
+        """Determine if a group of Hough lines forms a SOLID or DASHED line."""
+        if not lines:
+            return False
+            
+        # Create a boolean mask for the y-axis
+        y_mask = np.zeros(h, dtype=bool)
+        min_y, max_y = h, 0
+        
+        for (slope, x1, y1, x2, y2) in lines:
+            y_start = min(y1, y2)
+            y_end = max(y1, y2)
+            # Clip to valid bounds
+            y_start = max(0, min(h - 1, y_start))
+            y_end = max(0, min(h, y_end))
+            if y_start < y_end:
+                y_mask[y_start:y_end] = True
+            min_y = min(min_y, y_start)
+            max_y = max(max_y, y_end)
+            
+        span = max_y - min_y
+        if span <= 0:
+            return False
+            
+        coverage = np.sum(y_mask[min_y:max_y]) / span
+        # Dashed lines typically have < 50% coverage. Solid lines > 70%.
+        return coverage > 0.60
+
     def _classify(
         self,
+        left_lines: list,
+        right_lines: list,
         left_fit,
         right_fit,
         w: int,
         h: int,
     ) -> LaneResult:
-        """Determine lane position from detected boundaries."""
-        vehicle_x = w // 2    # assume camera is centred on vehicle
-
+        """Determine lane ID from solid/dashed boundaries."""
         if left_fit is None and right_fit is None:
             return LaneResult(lane="UNKNOWN")
 
@@ -184,7 +212,7 @@ class LaneDetector:
                 right_x=right_fit[2] if right_fit else None,
             )
 
-        left_x  = left_fit[2]   # x at bottom of frame
+        left_x  = left_fit[2]
         right_x = right_fit[2]
         lane_cx = (left_x + right_x) // 2
         lane_w  = right_x - left_x
@@ -192,15 +220,20 @@ class LaneDetector:
         if lane_w <= 0:
             return LaneResult(lane="UNKNOWN")
 
-        # How far is the vehicle from the lane centre, as a fraction
-        offset = (vehicle_x - lane_cx) / (lane_w / 2)
+        # Analyze solid vs dashed
+        left_solid = self._is_solid(left_lines, h)
+        right_solid = self._is_solid(right_lines, h)
 
-        if offset < -0.35:
-            lane = "LEFT"
-        elif offset > 0.35:
-            lane = "RIGHT"
+        if left_solid and right_solid:
+            lane = "SINGLE"  # Boxed in by two solid lines (1-lane road)
+        elif left_solid and not right_solid:
+            lane = "LEFT"    # Solid on left, dashed on right (Left lane)
+        elif not left_solid and not right_solid:
+            lane = "MIDDLE"  # Dashed on both sides (Middle lane)
+        elif not left_solid and right_solid:
+            lane = "RIGHT"   # Dashed on left, solid on right (Right lane)
         else:
-            lane = "MIDDLE"
+            lane = "UNKNOWN"
 
         return LaneResult(lane=lane, left_x=left_x, right_x=right_x, center_x=lane_cx)
 

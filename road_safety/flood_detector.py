@@ -70,7 +70,8 @@ class FloodDetector:
         with torch.no_grad():
             logits = self._model(tensor)
             probs  = torch.softmax(logits, dim=1)
-            flood_prob = float(probs[0, 1].item())
+            # class 0: flooded, class 1: normal
+            flood_prob = float(probs[0, 0].item())
 
         return FloodResult(
             flooded=flood_prob >= config.FLOOD_CONF_THRESHOLD,
