@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live GPS Tracker & Navigation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+
+    <!-- Leaflet Core CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Leaflet Routing Machine CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+    <style>
+        body { padding: 0; margin: 0; font-family: Arial, sans-serif; }
+        #map { height: 100vh; width: 100vw; }
+
+        #status {
+            position: absolute; top: 10px; left: 50px; z-index: 1000;
+            background: white; padding: 10px 12px; border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-weight: bold; font-size: 13px;
+        }
+        #status .sub { font-weight: normal; color: #555; font-size: 11px; margin-top: 2px; }
+
+        #nav-panel {
+            position: absolute; top: 75px; left: 50px; z-index: 1000;
+            background: white; padding: 15px; border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3); max-width: 280px;
+        }
+        #nav-panel h3 { margin-top: 0; margin-bottom: 10px; }
+        #nav-panel label {
+            display: block; font-size: 12px; font-weight: bold;
+            color: #333; margin-bottom: 3px; margin-top: 8px;
+        }
+        #nav-panel input[type="text"] {
+            width: 100%; box-sizing: border-box; padding: 6px 8px;
+            border: 1px solid #ccc; border-radius: 4px; font-size: 14px;
+        }
+        #use-live-btn {
+            background: none; border: none; color: #007bff; font-size: 11px;
+            padding: 0; margin-top: 2px; width: auto; cursor: pointer; text-decoration: underline;
+        }
+        #route-btn { margin-top: 12px; background: #28a745; }
+        #route-status { font-size: 12px; margin-top: 6px; min-height: 16px; color: #555; }
+        button {
+            padding: 8px 12px; background: #dc3545; color: white;
+            border: none; border-radius: 4px; cursor: pointer; width: 100%;
+        }
+
+        #follow-btn {
+            position: absolute; bottom: 20px; right: 10px; z-index: 1000;
+            width: auto; padding: 10px 14px; background: #007bff; border-radius: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        #follow-btn.off { background: #888; }
+
+        .autocomplete-list {
+            position: absolute; background: white; border: 1px solid #ccc;
+            border-top: none; max-height: 150px; overflow-y: auto;
+            width: 100%; z-index: 2000; font-size: 13px;
+        }
+        .autocomplete-list div { padding: 6px 8px; cursor: pointer; border-bottom: 1px solid #eee; }
+        .autocomplete-list div:hover { background: #f0f0f0; }
+
+        /* Rotating arrow marker for the live tracker */
+        .car-icon {
+            width: 28px; height: 28px;
+            transform-origin: 50% 50%;
+            transition: transform 0.3s linear;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="status">
+        Connecting to server...
+        <div class="sub" id="status-sub"></div>
+    </div>
+
+    <div id="nav-panel">
+        <h3>Navigation</h3>
+
+        <label for="source-input">Source</label>
+        <div style="position: relative;">
+            <input type="text" id="source-input" placeholder="Enter starting point" autocomplete="off" />
+            <div id="source-list" class="autocomplete-list" style="display:none;"></div>
+        </div>
+        <button id="use-live-btn" onclick="useLiveLocationAsSource()">Use my live location</button>
+
+        <label for="dest-input">Destination</label>
+        <div style="position: relative;">
+            <input type="text" id="dest-input" placeholder="Enter destination" autocomplete="off" />
+            <div id="dest-list" class="autocomplete-list" style="display:none;"></div>
+        </div>
+
+        <button id="route-btn" onclick="routeFromInputs()">Get Route</button>
+        <div id="route-status"></div>
+
+        <p style="font-size: 12px; color: #777; margin-bottom: 4px;">Or tap the map to route from your live location.</p>
+        <button onclick="clearRoute()">Clear Route</button>
+    </div>
+
+    <button id="follow-btn" onclick="toggleFollow()">📍 Following</button>
+
+    <div id="map"></div>
+
+    <script>
+        // 1. Initialize Map
+        var map = L.map('map').setView([12.8406, 80.1534], 16);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap'
+        }).addTo(map);
+
+        // ---- Rotating car/arrow marker ----
+        var carIcon = L.divIcon({
+            className: '',
+            html: '<svg class="car-icon" id="car-svg" viewBox="0 0 24 24">' +
+                  '<path d="M12 2 L19 21 L12 17 L5 21 Z" fill="#007bff" stroke="white" stroke-width="1.5"/></svg>',
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
+        });
+        var trackerMarker = L.marker([12.8406, 80.1534], { icon: carIcon }).addTo(map);
+
+        // Breadcrumb trail of where the tracker has actually been
+        var trail = L.polyline([], { color: '#007bff', weight: 3, opacity: 0.6 }).addTo(map);
+        var MAX_TRAIL_POINTS = 1000;
+
+        var latestCarLatLng = null;   // raw last confirmed GPS fix (used for routing)
+        var displayLatLng = null;     // currently animated/displayed position
+        var isFollowing = true;
+        var animFrame = null;
+
+        // 2. Routing control
+        var sourceLatLng = null;
+        var destLatLng = null;
+
+        var routingControl = L.Routing.control({
+            waypoints: [],
+            routeWhileDragging: false,
+            showAlternatives: false,
+            addWaypoints: false,
+            fitSelectedRoutes: true
+        }).addTo(map);
+
+        // 3. Tap map to quickly route from live location
+        map.on('click', function(e) {
+            if (latestCarLatLng) {
+                sourceLatLng = latestCarLatLng;
+                destLatLng = e.latlng;
+                routingControl.setWaypoints([sourceLatLng, destLatLng]);
+                document.getElementById('route-status').innerText = 'Routing from live location.';
+            } else {
+                alert("Waiting for GPS lock before routing.");
+            }
+        });
+
+        // Manual pan/drag disables auto-follow
+        map.on('dragstart', function() { setFollow(false); });
+
+        function clearRoute() {
+            routingControl.setWaypoints([]);
+            sourceLatLng = null;
+            destLatLng = null;
+            document.getElementById('source-input').value = '';
+            document.getElementById('dest-input').value = '';
+            document.getElementById('route-status').innerText = '';
+        }
+
+        function setFollow(on) {
+            isFollowing = on;
+            var btn = document.getElementById('follow-btn');
+            if (on) {
+                btn.innerText = '📍 Following';
+                btn.classList.remove('off');
+                if (displayLatLng) map.panTo(displayLatLng);
+            } else {
+                btn.innerText = '📍 Follow';
+                btn.classList.add('off');
+            }
+        }
+        function toggleFollow() { setFollow(!isFollowing); }
+
+        // ---- Smooth marker animation between GPS fixes ----
+        function animateMarkerTo(newLatLng, headingDeg) {
+            var start = displayLatLng || newLatLng;
+            var startTime = performance.now();
+            var duration = 900; // ms, roughly matches the ~1s GPS update rate
+
+            if (animFrame) cancelAnimationFrame(animFrame);
+
+            // Rotate the arrow toward the new heading immediately
+            var svg = document.getElementById('car-svg');
+            if (svg && typeof headingDeg === 'number') {
+                svg.style.transform = 'rotate(' + headingDeg + 'deg)';
+            }
+
+            function step(now) {
+                var t = Math.min(1, (now - startTime) / duration);
+                var lat = start.lat + (newLatLng.lat - start.lat) * t;
+                var lng = start.lng + (newLatLng.lng - start.lng) * t;
+                var pos = L.latLng(lat, lng);
+
+                displayLatLng = pos;
+                trackerMarker.setLatLng(pos);
+                if (isFollowing) map.panTo(pos, { animate: false });
+
+                if (t < 1) {
+                    animFrame = requestAnimationFrame(step);
+                } else {
+                    trail.addLatLng(newLatLng);
+                    var pts = trail.getLatLngs();
+                    if (pts.length > MAX_TRAIL_POINTS) {
+                        trail.setLatLngs(pts.slice(pts.length - MAX_TRAIL_POINTS));
+                    }
+                }
+            }
+            animFrame = requestAnimationFrame(step);
+        }
+
+        // ---- Geocoding (Nominatim) for source/destination inputs ----
+        function setupAutocomplete(inputId, listId, onSelect) {
+            var input = document.getElementById(inputId);
+            var list = document.getElementById(listId);
+            var debounceTimer = null;
+
+            input.addEventListener('input', function() {
+                var query = input.value.trim();
+                clearTimeout(debounceTimer);
+                if (query.length < 3) {
+                    list.style.display = 'none';
+                    list.innerHTML = '';
+                    return;
+                }
+                debounceTimer = setTimeout(function() {
+                    fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(query))
+                        .then(function(res) { return res.json(); })
+                        .then(function(results) {
+                            list.innerHTML = '';
+                            if (!results.length) { list.style.display = 'none'; return; }
+                            results.forEach(function(r) {
+                                var item = document.createElement('div');
+                                item.innerText = r.display_name;
+                                item.onclick = function() {
+                                    input.value = r.display_name;
+                                    list.style.display = 'none';
+                                    list.innerHTML = '';
+                                    onSelect(L.latLng(parseFloat(r.lat), parseFloat(r.lon)));
+                                };
+                                list.appendChild(item);
+                            });
+                            list.style.display = 'block';
+                        })
+                        .catch(function() { list.style.display = 'none'; });
+                }, 400);
+            });
+
+            document.addEventListener('click', function(e) {
+                if (e.target !== input) list.style.display = 'none';
+            });
+        }
+        setupAutocomplete('source-input', 'source-list', function(latlng) { sourceLatLng = latlng; });
+        setupAutocomplete('dest-input', 'dest-list', function(latlng) { destLatLng = latlng; });
+
+        function useLiveLocationAsSource() {
+            if (!latestCarLatLng) { alert("Waiting for GPS lock before using live location."); return; }
+            sourceLatLng = latestCarLatLng;
+            document.getElementById('source-input').value = 'My live location';
+        }
+
+        function routeFromInputs() {
+            var statusEl = document.getElementById('route-status');
+            if (!sourceLatLng) { statusEl.innerText = 'Choose a source (pick a suggestion or use live location).'; return; }
+            if (!destLatLng) { statusEl.innerText = 'Choose a destination from the suggestions.'; return; }
+            routingControl.setWaypoints([sourceLatLng, destLatLng]);
+            statusEl.innerText = 'Route set.';
+        }
+
+        // 4. WebSocket connection to the Python server
+        // Connects to whatever host served this page, so no IP hardcoding needed.
+        var wsProtocol = (location.protocol === 'https:') ? 'wss://' : 'ws://';
+        var wsUrl = wsProtocol + location.host + '/ws';
+        var socket = new WebSocket(wsUrl);
+
+        socket.onopen = function() {
+            document.getElementById('status').firstChild.textContent = "Connected! Waiting for GPS lock...";
+        };
+
+        socket.onmessage = function(event) {
+            var data = JSON.parse(event.data);
+            
+            // Handle hazard events
+            if (data.type === 'event') {
+                if (data.event_id === 5) { // Pothole
+                    var potholeIcon = L.divIcon({
+                        className: 'custom-div-icon',
+                        html: "<div style='background-color:#ff0000; width:16px; height:16px; border-radius:50%; border: 3px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);'></div>",
+                        iconSize: [16, 16],
+                        iconAnchor: [8, 8]
+                    });
+                    
+                    var popupHtml = "<b>⚠️ Pothole Logged</b><br/>Lat: " + data.lat.toFixed(6) + "<br/>Lng: " + data.lng.toFixed(6);
+                                    
+                    L.marker([data.lat, data.lng], {icon: potholeIcon})
+                     .addTo(map).bindPopup(popupHtml).openPopup();
+                }
+                else if (data.event_id === 4) { // Crash
+                    var crashIcon = L.divIcon({
+                        className: 'custom-div-icon',
+                        html: "<div style='background-color:#000000; color:white; width:24px; height:24px; border-radius:50%; border: 3px solid #ff9900; box-shadow: 0 0 8px rgba(255,0,0,0.8); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold;'>💥</div>",
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                    });
+                    
+                    var popupHtml = "<b style='color:red;'>💥 MAJOR CRASH DETECTED!</b><br/>Lat: " + data.lat.toFixed(6) + "<br/>Lng: " + data.lng.toFixed(6);
+                                    
+                    L.marker([data.lat, data.lng], {icon: crashIcon})
+                     .addTo(map).bindPopup(popupHtml).openPopup();
+                }
+                return;
+            }
+
+            if (data.lat == null || data.lng == null) return;
+
+            latestCarLatLng = L.latLng(data.lat, data.lng);
+            animateMarkerTo(latestCarLatLng, data.heading);
+
+            document.getElementById('status').firstChild.textContent =
+                'Live: ' + data.lat.toFixed(5) + ', ' + data.lng.toFixed(5);
+            document.getElementById('status-sub').innerText =
+                'Speed: ' + (data.speed || 0).toFixed(1) + ' km/h  •  Heading: ' + (data.heading || 0).toFixed(0) + '°';
+        };
+
+        socket.onerror = function() {
+            document.getElementById('status').firstChild.textContent = "WebSocket connection failed.";
+        };
+
+        socket.onclose = function() {
+            document.getElementById('status').firstChild.textContent = "Disconnected from server.";
+        };
+    </script>
+</body>
+</html>

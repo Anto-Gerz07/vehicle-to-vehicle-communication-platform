@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_SH110X.h>
+#include <Adafruit_SSD1306.h>
 #include <WiFi.h>
 #include <esp_now.h>
 #include <TinyGPS++.h>
@@ -20,7 +20,7 @@
 #define OLED_RESET    -1 
 #define SCREEN_ADDRESS 0x3C
 
-Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // MPU6500 on secondary I2C bus (Wire1)
 #define MPU_SDA 32
@@ -150,8 +150,8 @@ void setup() {
   
 
   
-  if(!display.begin(SCREEN_ADDRESS, true)) {
-    Serial.println(F("SH1106 allocation failed"));
+  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
     for(;;);
   }
   
@@ -208,12 +208,10 @@ float smoothLerp(float a, float b, float t) {
 
 void drawStateBoot(unsigned long currentMillis) {
   // Cinematic Boot Logo (Geometric V2V)
-  display.drawRect(24, 8, 80, 32, SH110X_WHITE);
-  display.drawLine(24, 8, 104, 40, SH110X_WHITE);
-  display.drawLine(24, 40, 104, 8, SH110X_WHITE);
+  display.drawRect(24, 8, 80, 32, SSD1306_WHITE);
   
   display.setFont(&FreeSans9pt7b);
-  display.setTextColor(SH110X_WHITE);
+  display.setTextColor(SSD1306_WHITE);
   display.setCursor(44, 30);
   display.print("V2V");
   
@@ -224,8 +222,8 @@ void drawStateBoot(unsigned long currentMillis) {
   // Clean Loading Bar
   float progress = constrain((currentMillis - bootTime) / 5000.0, 0.0, 1.0);
   int barW = (int)(progress * 100);
-  display.drawRoundRect(14, 56, 100, 6, 2, SH110X_WHITE);
-  display.fillRoundRect(14, 56, barW, 6, 2, SH110X_WHITE);
+  display.drawRoundRect(14, 56, 100, 6, 2, SSD1306_WHITE);
+  display.fillRoundRect(14, 56, barW, 6, 2, SSD1306_WHITE);
   
   if (progress >= 1.0) {
     currentState = STATE_WAITING;
@@ -239,15 +237,15 @@ void drawStateWaiting(unsigned long currentMillis) {
   
   // Pulsing animation
   int w = (currentMillis / 15) % 100;
-  display.drawRoundRect(14, 40, 100, 6, 3, SH110X_WHITE);
-  display.fillRoundRect(14 + w, 40, 10, 6, 3, SH110X_WHITE);
+  display.drawRoundRect(14, 40, 100, 6, 3, SSD1306_WHITE);
+  display.fillRoundRect(14 + w, 40, 10, 6, 3, SSD1306_WHITE);
 }
 
 void drawStateStandalone(unsigned long currentMillis) {
   display.setFont();
   display.setCursor(0, 0);
   display.print(F("STANDALONE V2V NODE"));
-  display.drawLine(0, 10, 128, 10, SH110X_WHITE);
+  display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
   
   display.setFont(&FreeSans9pt7b);
   display.setCursor(0, 30);
@@ -269,7 +267,7 @@ void drawStateStandalone(unsigned long currentMillis) {
   int cx = 100;
   int cy = 34;
   int r = 16;
-  display.drawCircle(cx, cy, r, SH110X_WHITE);
+  display.drawCircle(cx, cy, r, SSD1306_WHITE);
   
   // Pitch shifts the line up/down, Roll rotates it
   float pitchScale = 0.3; // pixels per degree
@@ -284,12 +282,12 @@ void drawStateStandalone(unsigned long currentMillis) {
   int x2 = cx + (int)(lineHalfLength * cos(rollRad)) + (int)(yOffset * sin(rollRad));
   int y2 = cy - (int)(lineHalfLength * sin(rollRad)) + (int)(yOffset * cos(rollRad));
   
-  display.drawLine(x1, y1, x2, y2, SH110X_WHITE);
+  display.drawLine(x1, y1, x2, y2, SSD1306_WHITE);
   // Center dot
-  display.drawPixel(cx, cy, SH110X_WHITE);
+  display.drawPixel(cx, cy, SSD1306_WHITE);
   
   // Status Footer
-  display.drawRoundRect(0, 52, 128, 12, 3, SH110X_WHITE);
+  display.drawRoundRect(0, 52, 128, 12, 3, SSD1306_WHITE);
   display.setCursor(12, 54);
   display.print(F("UNTETHERED MODE"));
 }
@@ -305,10 +303,10 @@ void drawStateTracking(unsigned long currentMillis) {
   display.print(myState.vehicle_id);
   display.setCursor(80, 0);
   display.print(F("V2V: ON"));
-  display.drawLine(0, 10, 128, 10, SH110X_WHITE);
+  display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
   
   // Icon
-  display.drawBitmap(2, 14, icon_car, 16, 16, SH110X_WHITE);
+  display.drawBitmap(2, 14, icon_car, 16, 16, SSD1306_WHITE);
   
   // Speed Number
   display.setFont(&FreeSans9pt7b);
@@ -363,8 +361,8 @@ void drawStateWarning(unsigned long currentMillis) {
   
   // Full-Screen Hijack for Severe Alerts
   if (isSevere) {
-    display.fillScreen(flash ? SH110X_WHITE : SH110X_BLACK);
-    display.setTextColor(flash ? SH110X_BLACK : SH110X_WHITE);
+    display.fillScreen(flash ? SSD1306_WHITE : SSD1306_BLACK);
+    display.setTextColor(flash ? SSD1306_BLACK : SSD1306_WHITE);
     
     display.setFont(); // Use default font for scaling
     display.setTextSize(3); // 3x scale!
@@ -397,22 +395,22 @@ void drawStateWarning(unsigned long currentMillis) {
     }
     
     // Reset colors for next frame safety
-    display.setTextColor(SH110X_WHITE);
+    display.setTextColor(SSD1306_WHITE);
     return;
   }
   
   // Standard Minor Warning (Overspeed, Hard Braking)
   if (flash) {
-    display.fillScreen(SH110X_WHITE);
-    display.setTextColor(SH110X_BLACK);
+    display.fillScreen(SSD1306_WHITE);
+    display.setTextColor(SSD1306_BLACK);
   } else {
-    display.setTextColor(SH110X_WHITE);
+    display.setTextColor(SSD1306_WHITE);
   }
   
   display.setFont(&FreeSans9pt7b);
   display.setCursor(26, 18);
   display.print(F("WARNING!"));
-  if (!flash) display.drawBitmap(5, 5, icon_warning, 16, 16, SH110X_WHITE);
+  if (!flash) display.drawBitmap(5, 5, icon_warning, 16, 16, SSD1306_WHITE);
   
   display.setFont();
   display.setCursor(0, 26);
@@ -423,8 +421,8 @@ void drawStateWarning(unsigned long currentMillis) {
     display.print(activeId);
   }
   
-  if (flash) display.drawLine(0, 36, 128, 36, SH110X_BLACK);
-  else display.drawLine(0, 36, 128, 36, SH110X_WHITE);
+  if (flash) display.drawLine(0, 36, 128, 36, SSD1306_BLACK);
+  else display.drawLine(0, 36, 128, 36, SSD1306_WHITE);
   
   display.setCursor(0, 42);
   if (activeEvent == 1) display.print(F(">>> OVERSPEED <<<"));
@@ -433,13 +431,13 @@ void drawStateWarning(unsigned long currentMillis) {
   else { display.print(F("EVENT: ")); display.print(activeEvent); }
   
   // Hazard footer
-  if (!flash) display.fillRoundRect(0, 52, 128, 12, 3, SH110X_WHITE);
-  else display.drawRoundRect(0, 52, 128, 12, 3, SH110X_BLACK);
+  if (!flash) display.fillRoundRect(0, 52, 128, 12, 3, SSD1306_WHITE);
+  else display.drawRoundRect(0, 52, 128, 12, 3, SSD1306_BLACK);
   
-  if (!flash) display.setTextColor(SH110X_BLACK);
+  if (!flash) display.setTextColor(SSD1306_BLACK);
   display.setCursor(18, 54);
   display.print(F("HAZARD DETECTED"));
-  display.setTextColor(SH110X_WHITE);
+  display.setTextColor(SSD1306_WHITE);
 }
 
 void loop() {

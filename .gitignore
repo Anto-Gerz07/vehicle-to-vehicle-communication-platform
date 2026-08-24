@@ -10,4 +10,4 @@ venv/
 v2v-web-simulator/dist/
 v2v-web-simulator/node_modules/
 .DS_Store
-*.csv
+blackbox_logs/

@@ -5,6 +5,10 @@ import threading
 import random
 import csv
 import datetime
+import requests
+import socket
+import json
+import os
 from collections import deque
 from v2v_simulator.sensor_sim import SensorSim
 from v2v_simulator.rule_engine import RuleEngine, EVENT_NAMES
@@ -46,6 +50,10 @@ class RealisticV2VSimulator:
         self.gear = 1
         self.rpm = 800
         self.eco_score = 100.0
+        self.friction_mod = 1.0 # 1.0 Dry, 0.7 Wet, 0.15 Ice
+        self.weather_state = "DRY"
+        self.npc_mode = "GHOST" # "GHOST" or "LEAD"
+        self.npc_panic = False
         
         # Vehicle Specs
         self.mass = 1500.0 # kg
@@ -91,7 +99,8 @@ class RealisticV2VSimulator:
         self.steer_val = 0.0
         
         # Initialize Black Box Logger
-        self.log_filename = f"v2v_blackbox_{int(time.time())}.csv"
+        os.makedirs("blackbox_logs", exist_ok=True)
+        self.log_filename = f"blackbox_logs/v2v_blackbox_{int(time.time())}.csv"
         self.last_log_time = 0
         with open(self.log_filename, 'w', newline='') as f:
             writer = csv.writer(f)
@@ -137,6 +146,7 @@ class RealisticV2VSimulator:
         
         # Eco Score
         self.eco_text = self.canvas.create_text(280, 420, text="SAFETY SCORE: 100", fill="#10B981", font=self.font_title)
+        self.weather_text = self.canvas.create_text(280, 455, text="WEATHER: DRY (1.0µ)", fill="#3B82F6", font=self.font_small)
         
         # Status Box
         self.status_bg = self.canvas.create_rectangle(60, 480, 500, 540, fill="#374151", outline="")
@@ -203,7 +213,7 @@ class RealisticV2VSimulator:
         
         # Controls Panel (Bottom)
         self.canvas.create_rectangle(30, 630, 1320, 820, fill="#111827", outline="#374151", width=2)
-        controls = "CONTROLS:\n[W] / [Up]: Normal / Harsh Drive    [Down]: Brake    [Left/Right]: Steer\n[B]: Harsh Brake    [Space]: CRASH!    [E]: Siren Mode"
+        controls = "CONTROLS:\n[W] / [Up]: Normal / Harsh Drive    [Down]: Brake    [Left/Right]: Steer\n[B]: Harsh Brake    [Space]: CRASH!    [E]: Siren Mode\n[1/2/3]: Dry/Wet/Ice    [L]: Spawn Lead Car    [P]: NPC Panic Brake"
         self.canvas.create_text(675, 725, text=controls, fill="#6B7280", font=("Helvetica", 16), justify=tk.CENTER)
 
     def bind_keys(self):
@@ -214,19 +224,27 @@ class RealisticV2VSimulator:
         keysym = event.keysym.lower()
         if keysym == 'e': 
             self.emergency_mode = not self.emergency_mode
+        elif keysym == '1':
+            self.friction_mod, self.weather_state = 1.0, "DRY"
+        elif keysym == '2':
+            self.friction_mod, self.weather_state = 0.7, "WET"
+        elif keysym == '3':
+            self.friction_mod, self.weather_state = 0.15, "ICE"
+        elif keysym == 'l':
+            self.npc_mode = "LEAD" if self.npc_mode == "GHOST" else "GHOST"
+        elif keysym == 'p':
+            self.npc_panic = True
         elif keysym in self.inputs: 
             self.inputs[keysym] = True
 
     def key_release(self, event):
         keysym = event.keysym.lower()
+        if keysym == 'p': self.npc_panic = False
         if keysym in self.inputs: self.inputs[keysym] = False
 
     def npc_loop(self):
-        # Simulate ghost cars with dynamic, unpredictable behaviors
         seq_b = 0
         speed_b = 15.0 # m/s (54 km/h)
-        
-        # We will spawn the ghost car exactly 100m South of the physical GPS
         lat_b = 0.0
         lon_b = 0.0
         r_earth = 6378137.0
@@ -237,32 +255,46 @@ class RealisticV2VSimulator:
             local_lon = getattr(self.bridge, 'gps_lon', None)
             
             if local_lat and local_lon and not spawned:
-                # Spawn 100m South
                 lat_b = local_lat + (-100.0 / r_earth) * (180.0 / math.pi)
                 lon_b = local_lon
                 spawned = True
-                print(f"[Ghost Car] Spawned 100m South of {local_lat}, {local_lon}")
                 
-            if spawned:
-                # Ghost car drives North (Heading 0) at speed_b
-                dy = speed_b * 0.1 # m per 0.1s tick
-                lat_b = lat_b + (dy / r_earth) * (180.0 / math.pi)
-            else:
-                lat_b, lon_b = 0.0, 0.0
+            accel_b = 0.0
+            heading_b = 0.0
             
-            # Dynamic NPC braking based on random hazard
-            if random.random() < 0.02 and speed_b > 5.0:
-                accel_b = -8.0 # Sudden hard brake
-            else:
-                accel_b = (15.0 - speed_b) * 0.2 + random.uniform(-0.5, 0.5)
+            if self.npc_mode == "LEAD" and local_lat and local_lon:
+                # Spawn EXACTLY 30m ahead of player, matching player's heading
+                lead_distance = 30.0
+                rad_heading = math.radians(self.heading)
+                dx = lead_distance * math.sin(rad_heading)
+                dy = lead_distance * math.cos(rad_heading)
+                
+                lat_b = local_lat + (dy / r_earth) * (180.0 / math.pi)
+                lon_b = local_lon + (dx / (r_earth * math.cos(math.radians(local_lat)))) * (180.0 / math.pi)
+                heading_b = self.heading
+                
+                if self.npc_panic:
+                    accel_b = -9.81 # 1G Panic stop!
+                else:
+                    target_speed = self.speed
+                    accel_b = (target_speed - speed_b) * 2.0 # Try to match speed quickly
+            elif spawned:
+                # Ghost car drives North (Heading 0)
+                dy = speed_b * 0.1
+                lat_b = lat_b + (dy / r_earth) * (180.0 / math.pi)
+                
+                if random.random() < 0.02 and speed_b > 5.0:
+                    accel_b = -8.0
+                else:
+                    accel_b = (15.0 - speed_b) * 0.2 + random.uniform(-0.5, 0.5)
             
             speed_b = max(0.0, speed_b + accel_b * 0.1)
-            
             seq_b += 1
+            
             packet_b = VehicleStatePacket(
                 vehicle_id="B", seq=seq_b, timestamp=time.time(),
                 speed=speed_b, 
-                acceleration=accel_b, heading=0.0, event=0, confidence=100,
+                acceleration=accel_b, heading=heading_b, event=0, confidence=100,
                 latitude=lat_b, longitude=lon_b
             )
             self.risk_engine.update_neighbor(packet_b)
@@ -270,9 +302,9 @@ class RealisticV2VSimulator:
 
     def physics_loop(self):
         dt = 0.05 
-        friction_mod = 1.0 # Static Dry Asphalt
         
         while self.running:
+            friction_mod = self.friction_mod
             current_time = time.time()
             
             # --- Input Smoothing ---
@@ -324,6 +356,23 @@ class RealisticV2VSimulator:
                 
             self.rpm = max(800.0, wheel_rpm * self.final_drive * self.gear_ratios[self.gear])
             
+            # Mix real hardware IMU with Simulator dynamics for UI
+            sim_pitch = getattr(self, 'lon_g', 0.0) * -15.0 # 1G braking = 15 deg dive
+            sim_roll = getattr(self, 'lat_g', 0.0) * 10.0 # 1G cornering = 10 deg body roll
+            self.pitch += sim_pitch
+            self.roll += sim_roll
+
+            # --- Tire Slip Angle (Linear Model) ---
+            target_turn_rate = self.steer_val * (self.speed * 0.2)
+            slip_factor = max(1.0, self.speed * 0.1) 
+            if not hasattr(self, 'actual_turn_rate'): self.actual_turn_rate = 0.0
+            self.actual_turn_rate += (target_turn_rate - self.actual_turn_rate) * (dt / slip_factor)
+            
+            # Engine braking
+            engine_braking = 0.0
+            if self.throttle_val == 0.0 and self.speed > 1.0:
+                engine_braking = (self.rpm / 1000.0) * self.gear_ratios[self.gear] * 150.0
+
             engine_torque = self.get_torque(self.rpm) * self.throttle_val
             wheel_torque = engine_torque * self.gear_ratios[self.gear] * self.final_drive
             engine_force = wheel_torque / self.wheel_radius
@@ -335,12 +384,15 @@ class RealisticV2VSimulator:
             if self.inputs['b']: brake_input = 1.0 
             elif self.inputs['down']: brake_input = 0.12 
             
-            requested_brake_force = brake_input * 25000.0 
+            requested_brake_force = (brake_input * 25000.0) + engine_braking
             
-            # Traction Circle Physics (Lateral vs Longitudinal Grip)
-            max_friction_force = friction_mod * self.mass * 9.81
+            # Dynamic Weight Transfer
+            weight_transfer_pitch = getattr(self, 'lon_g', 0.0) * 0.2 * self.mass * 9.81
+            front_grip = max(100.0, (self.mass * 9.81 * 0.5 - weight_transfer_pitch) * friction_mod)
+            rear_grip = max(100.0, (self.mass * 9.81 * 0.5 + weight_transfer_pitch) * friction_mod)
+            max_friction_force = front_grip + rear_grip
             
-            turn_rate = self.steer_val * (self.speed * 0.2)
+            turn_rate = self.actual_turn_rate
             lat_force = self.mass * (turn_rate * self.speed) # Centripetal Force F = m*v^2/r
             
             # Available longitudinal grip reduces as lateral force increases
@@ -393,7 +445,7 @@ class RealisticV2VSimulator:
                 if not (self.inputs['space'] or self.inputs['b'] or abs(self.roll) >= self.rollover_limit or abs(self.pitch) >= self.rollover_limit):
                     effective_accel = 0.0
                 
-            turn_rate = self.steer_val * (self.speed * 0.2)
+            turn_rate = self.actual_turn_rate
             self.heading = (self.heading + turn_rate * dt) % 360
             
             self.lon_g = effective_accel / 9.81
@@ -403,7 +455,7 @@ class RealisticV2VSimulator:
             speed_kmh = self.speed * 3.6
             turn_radius = (self.speed / (turn_rate + 0.0001)) if turn_rate != 0 else float('inf')
             
-            if turn_rate != 0:
+            if turn_rate != 0 and turn_radius != 0:
                 inner_radius = abs(turn_radius) - (self.track_width / 2)
                 outer_radius = abs(turn_radius) + (self.track_width / 2)
                 ratio_inner = inner_radius / abs(turn_radius)
@@ -514,6 +566,31 @@ class RealisticV2VSimulator:
             )
             self.bridge.receive_packet(packet.to_json())
             
+            # --- Map Server HTTP Telemetry ---
+            if event_id > 0:
+                # Prevent spamming the server 20 times a second; send at most once per second
+                if not hasattr(self, 'last_http_send_time') or (current_time - self.last_http_send_time) > 1.0:
+                    self.last_http_send_time = current_time
+                    
+                    lat = getattr(self.bridge, 'gps_lat', None)
+                    lon = getattr(self.bridge, 'gps_lon', None)
+                    # Safely handle None values when GPS has no lock, adding a small random scatter for testing
+                    lat = float(lat) if lat is not None else 12.844175 + random.uniform(-0.001, 0.001)
+                    lon = float(lon) if lon is not None else 80.154944 + random.uniform(-0.001, 0.001)
+                    
+                    def send_http():
+                        try:
+                            payload = {"event": event_id, "lat": lat, "lng": lon}
+                            MAP_SERVER_IP = "10.216.9.166" 
+                            MAP_SERVER_PORT = "8080"
+                            url = f"http://{MAP_SERVER_IP}:{MAP_SERVER_PORT}/gps"
+                            
+                            res = requests.post(url, json=payload, timeout=2)
+                            print(f"[*] Sent HTTP to Map Server: {payload}")
+                        except Exception as e:
+                            print(f"[Map Server] Failed to send HTTP: {e}")
+                    threading.Thread(target=send_http, daemon=True).start()
+            
             self.update_ui(event_id, is_anomaly, ml_score, min_ttc)
             
             # --- Black Box Logging ---
@@ -577,6 +654,10 @@ class RealisticV2VSimulator:
             
             score_col = "#10B981" if self.eco_score > 80 else ("#F59E0B" if self.eco_score > 40 else "#EF4444")
             self.canvas.itemconfig(self.eco_text, text=f"SAFETY SCORE: {int(self.eco_score)}", fill=score_col)
+            
+            weather_col = "#3B82F6" if self.friction_mod > 0.5 else "#60A5FA"
+            npc_mode_str = " (NPC: LEAD)" if self.npc_mode == "LEAD" else ""
+            self.canvas.itemconfig(self.weather_text, text=f"WEATHER: {self.weather_state} ({self.friction_mod}µ){npc_mode_str}", fill=weather_col)
             
             # V2V Chassis Info
             tcs_str = "TCS/ABS: ACTIVE!" if self.tcs_active else "TCS/ABS: INACTIVE"
