@@ -69,23 +69,6 @@ bool initMPU6050() {
 #define LED_RED    2
 #define BUZZER_PIN 15
 
-// --- Custom Bitmaps (16x16) ---
-const unsigned char icon_car[] PROGMEM = {
-  0x00, 0x00, 0x00, 0x00, 0xf0, 0x0f, 0x08, 0x10, 0x04, 0x20, 0x82, 0x41,
-  0x7e, 0x7e, 0x81, 0x81, 0x81, 0x81, 0xff, 0xff, 0x81, 0x81, 0x42, 0x42,
-  0x3c, 0x3c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
-const unsigned char icon_warning[] PROGMEM = {
-  0x00, 0x00, 0x80, 0x01, 0xc0, 0x03, 0x40, 0x02, 0x60, 0x06, 0x60, 0x06,
-  0x30, 0x0c, 0x30, 0x0c, 0x38, 0x1c, 0x18, 0x18, 0x18, 0x18, 0x0c, 0x30,
-  0x00, 0x00, 0x0c, 0x30, 0xff, 0xff, 0x00, 0x00
-};
-const unsigned char icon_siren[] PROGMEM = {
-  0x00, 0x00, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0xf8, 0x1f, 0x1c, 0x38,
-  0x1c, 0x38, 0x1c, 0x38, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
-
 #pragma pack(push, 1)
 struct VehicleStatePacket {
   char vehicle_id;
@@ -142,9 +125,8 @@ void setup() {
   pinMode(LED_YELLOW, OUTPUT);
   pinMode(LED_RED, OUTPUT);
   
-  // Setting buzzer to simple HIGH/LOW logic (100% MAX voltage)
   pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW); // Start silent
+  digitalWrite(BUZZER_PIN, LOW);
 
   digitalWrite(LED_GREEN, LOW);
   digitalWrite(LED_YELLOW, LOW);
@@ -181,20 +163,13 @@ float smoothLerp(float a, float b, float t) {
 }
 
 void drawStateBoot(unsigned long currentMillis) {
-  display.setFont(&FreeSans9pt7b);
+  display.setFont(); // Use default font for perfect scaling
   display.setTextColor(SH110X_WHITE);
-  display.setCursor(44, 30);
+  display.setTextSize(4);
+  display.setCursor(28, 16);
   display.print("V2V");
   
-  display.setFont();
-  display.setCursor(44, 46);
-  display.print("LORA RX");
-  
   float progress = constrain((currentMillis - bootTime) / 3000.0, 0.0, 1.0);
-  int barW = (int)(progress * 100);
-  display.drawRoundRect(14, 56, 100, 6, 2, SH110X_WHITE);
-  display.fillRoundRect(14, 56, barW, 6, 2, SH110X_WHITE);
-  
   if (progress >= 1.0) {
     currentState = STATE_WAITING;
   }
@@ -203,12 +178,9 @@ void drawStateBoot(unsigned long currentMillis) {
 void drawStateWaiting(unsigned long currentMillis) {
   display.setFont(); 
   display.setTextColor(SH110X_WHITE);
-  display.setCursor(20, 20);
-  display.println(F("Waiting for LoRa..."));
-  
-  int w = (currentMillis / 15) % 100;
-  display.drawRoundRect(14, 40, 100, 6, 3, SH110X_WHITE);
-  display.fillRoundRect(14 + w, 40, 10, 6, 3, SH110X_WHITE);
+  display.setTextSize(2);
+  display.setCursor(22, 24);
+  display.print(F("WAITING"));
 }
 
 void drawStateTracking(unsigned long currentMillis) {
@@ -217,121 +189,67 @@ void drawStateTracking(unsigned long currentMillis) {
   
   display.setFont();
   display.setTextColor(SH110X_WHITE);
-  display.setCursor(0, 0);
-  display.print(F("ID: "));
-  display.print(myState.vehicle_id);
-  display.setCursor(80, 0);
-  display.print(F("LORA: OK"));
-  display.drawLine(0, 10, 128, 10, SH110X_WHITE);
   
-  display.drawBitmap(2, 14, icon_car, 16, 16, SH110X_WHITE);
-  
-  display.setFont(&FreeSans9pt7b);
-  display.setCursor(25, 34);
   int displaySpeed = (int)currentSpeedDisplay;
+  if (displaySpeed < 10) {
+    display.setTextSize(5);
+    display.setCursor(45, 12);
+  } else if (displaySpeed < 100) {
+    display.setTextSize(5);
+    display.setCursor(30, 12);
+  } else {
+    display.setTextSize(4);
+    display.setCursor(20, 16);
+  }
   display.print(displaySpeed); 
   
-  display.setFont();
-  display.setCursor(75, 26);
+  display.setTextSize(1);
+  display.setCursor(102, 45);
   display.print(F("km/h"));
   
-  display.setCursor(0, 54);
-  display.print(F("Status: [ NORMAL ]"));
+  // Minimalist status indicator (dot in top right)
+  display.fillCircle(120, 8, 3, SH110X_WHITE);
 }
 
 void drawStateWarning(unsigned long currentMillis) {
   bool flash = (currentMillis / 150) % 2 == 0;
   
   uint8_t activeEvent = 0;
-  char activeId = '?';
-  bool isLocal = false;
-  
   if (myState.event == 4 || myState.event == 5 || myState.event == 8) {
     activeEvent = myState.event;
-    activeId = myState.vehicle_id;
-    isLocal = true;
   } else {
     activeEvent = receivedAlert.event;
-    activeId = receivedAlert.vehicle_id;
   }
   
-  bool isSevere = (activeEvent == 4 || activeEvent == 5 || activeEvent == 8);
-  
-  if (isSevere) {
-    display.fillScreen(flash ? SH110X_WHITE : SH110X_BLACK);
-    display.setTextColor(flash ? SH110X_BLACK : SH110X_WHITE);
-    
-    display.setFont(); 
-    display.setTextSize(3); 
-    
-    if (activeEvent == 4) {
-      display.setCursor(10, 15);
-      display.print(F("CRASH!"));
-    } else if (activeEvent == 5) {
-      display.setCursor(10, 15);
-      display.print(F("HAZARD"));
-    } else if (activeEvent == 8) {
-      display.setTextSize(2); 
-      display.setCursor(10, 20);
-      display.print(F("EMERGENCY"));
-    }
-    
-    display.setTextSize(1); 
-    display.setFont();
-    display.setCursor(20, 45);
-    
-    if (isLocal) {
-      display.print(F("EVACUATE VEHICLE"));
-    } else if (activeEvent == 8) {
-      display.setCursor(10, 45); 
-      display.print(F("VEHICLE BEHIND"));
-    } else {
-      display.print(F("CAR "));
-      display.print(activeId);
-      display.print(F(" AHEAD"));
-    }
-    
-    display.setTextColor(SH110X_WHITE);
-    return;
-  }
-  
-  if (flash) {
-    display.fillScreen(SH110X_WHITE);
-    display.setTextColor(SH110X_BLACK);
-  } else {
-    display.setTextColor(SH110X_WHITE);
-  }
-  
-  display.setFont(&FreeSans9pt7b);
-  display.setCursor(26, 18);
-  display.print(F("WARNING!"));
-  if (!flash) display.drawBitmap(5, 5, icon_warning, 16, 16, SH110X_WHITE);
-  
+  display.fillScreen(flash ? SH110X_WHITE : SH110X_BLACK);
+  display.setTextColor(flash ? SH110X_BLACK : SH110X_WHITE);
   display.setFont();
-  display.setCursor(0, 26);
-  if (isLocal) {
-    display.print(F("FROM: LOCAL SENSOR"));
+  
+  if (activeEvent == 4) {
+    display.setTextSize(3);
+    display.setCursor(10, 20);
+    display.print(F("CRASH!"));
+  } else if (activeEvent == 5 || activeEvent == 2) {
+    display.setTextSize(3);
+    display.setCursor(10, 20);
+    display.print(F("HAZARD"));
+  } else if (activeEvent == 8) {
+    display.setTextSize(2);
+    display.setCursor(10, 24);
+    display.print(F("EMERGENCY"));
+  } else if (activeEvent == 1) {
+    display.setTextSize(2);
+    display.setCursor(10, 24);
+    display.print(F("OVERSPEED"));
+  } else if (activeEvent == 9) {
+    display.setTextSize(3);
+    display.setCursor(18, 20);
+    display.print(F("BRAKE"));
   } else {
-    display.print(F("FROM: Car "));
-    display.print(activeId);
+    display.setTextSize(3);
+    display.setCursor(10, 20);
+    display.print(F("ALERT!"));
   }
-  
-  if (flash) display.drawLine(0, 36, 128, 36, SH110X_BLACK);
-  else display.drawLine(0, 36, 128, 36, SH110X_WHITE);
-  
-  display.setCursor(0, 42);
-  if (activeEvent == 1) display.print(F(">>> OVERSPEED <<<"));
-  else if (activeEvent == 2) display.print(F(">>> LOSS OF TRACTN"));
-  else if (activeEvent == 9) display.print(F(">>> HARD BRAKING"));
-  else { display.print(F("EVENT: ")); display.print(activeEvent); }
-  
-  if (!flash) display.fillRoundRect(0, 52, 128, 12, 3, SH110X_WHITE);
-  else display.drawRoundRect(0, 52, 128, 12, 3, SH110X_BLACK);
-  
-  if (!flash) display.setTextColor(SH110X_BLACK);
-  display.setCursor(18, 54);
-  display.print(F("HAZARD DETECTED"));
-  display.setTextColor(SH110X_WHITE);
 }
 
 void loop() {
@@ -381,18 +299,30 @@ void loop() {
       digitalWrite(LED_RED, flash ? HIGH : LOW);
       digitalWrite(LED_YELLOW, flash ? LOW : HIGH);
       digitalWrite(LED_GREEN, LOW);
-      digitalWrite(BUZZER_PIN, HIGH); // Constant HIGH
+      // Distinct slow pulsating beep for ambulance
+      if ((currentMillis / 400) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
+      else digitalWrite(BUZZER_PIN, LOW);
     } else if (activeEventBuzzer == 4 || activeEventBuzzer == 9) { // CRASH / HARSH_BRAKING
       digitalWrite(LED_RED, HIGH);
       digitalWrite(LED_YELLOW, LOW);
       digitalWrite(LED_GREEN, LOW);
-      if ((currentMillis / 50) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
+      // Urgent fast continuous beeping
+      if ((currentMillis / 100) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
       else digitalWrite(BUZZER_PIN, LOW);
-    } else if (activeEventBuzzer == 1 || activeEventBuzzer == 5 || activeEventBuzzer == 2) { // OVERSPEED / HAZARD / TRACTN
+    } else if (activeEventBuzzer == 1) { // OVERSPEED
       digitalWrite(LED_RED, LOW);
       digitalWrite(LED_YELLOW, HIGH);
       digitalWrite(LED_GREEN, LOW);
-      if ((currentMillis / 200) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
+      // Warning double-beep pattern
+      int cycle = currentMillis % 1000;
+      if (cycle < 100 || (cycle > 200 && cycle < 300)) digitalWrite(BUZZER_PIN, HIGH);
+      else digitalWrite(BUZZER_PIN, LOW);
+    } else if (activeEventBuzzer == 5 || activeEventBuzzer == 2) { // HAZARD / TRACTN
+      digitalWrite(LED_RED, LOW);
+      digitalWrite(LED_YELLOW, HIGH);
+      digitalWrite(LED_GREEN, LOW);
+      // Slow steady warning beep
+      if ((currentMillis / 500) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
       else digitalWrite(BUZZER_PIN, LOW);
     } else { // NORMAL
       digitalWrite(LED_RED, LOW);
