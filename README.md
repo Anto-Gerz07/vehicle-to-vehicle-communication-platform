@@ -20,6 +20,8 @@ We developed a complete ecosystem including:
 ## How to Replicate It
 
 ### 1. Software Environment Setup
+
+#### Python Environment (Backend & CV)
 1. **Clone the repository**:
    ```bash
    git clone https://github.com/shaik-hasan-AS/V2V.git
@@ -31,9 +33,16 @@ We developed a complete ecosystem including:
    python3 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
-   pip install aiohttp
    ```
+   *(Note: This installs all dependencies for the interactive simulator, road safety CV pipeline, and mapping server).*
 
+#### Web Simulator (Frontend)
+If you want to use the modern React/Vite web simulator interface, ensure you have Node.js installed:
+```bash
+cd v2v-web-simulator
+npm install
+npm run dev
+```
 ### 2. Hardware Implementation (ESP32 Nodes)
 To replicate the physical V2V mesh network:
 1. Wire an ESP32 to a 0.96-inch SSD1306 OLED display (I2C), an MPU6500 IMU (I2C), and a NEO-6M GPS module (UART2).

@@ -19,12 +19,55 @@
 
 Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
+// --- MPU6050 Pins & Settings ---
+#define MPU_SDA 32
+#define MPU_SCL 33
+TwoWire I2CMPU = TwoWire(1);
+
+bool initMPU6050() {
+  I2CMPU.beginTransmission(0x68);
+  I2CMPU.write(0x75); // WHO_AM_I register
+  I2CMPU.endTransmission(false);
+  I2CMPU.requestFrom((uint16_t)0x68, (uint8_t)1, true);
+  uint8_t whoami = I2CMPU.read();
+  
+  if (whoami != 0x68 && whoami != 0x70) { // 0x68 for 6050, 0x70 for 6500
+    Serial.print("MPU Error! WHO_AM_I = 0x");
+    Serial.println(whoami, HEX);
+    return false;
+  }
+
+  I2CMPU.beginTransmission(0x68);
+  I2CMPU.write(0x6B); // Power management
+  I2CMPU.write(0x00); // Wake up
+  I2CMPU.endTransmission();
+  
+  // Set accel range to +/- 2g
+  I2CMPU.beginTransmission(0x68);
+  I2CMPU.write(0x1C);
+  I2CMPU.write(0x00); 
+  I2CMPU.endTransmission();
+  
+  // Set gyro range to +/- 250 deg/s
+  I2CMPU.beginTransmission(0x68);
+  I2CMPU.write(0x1B);
+  I2CMPU.write(0x00);
+  I2CMPU.endTransmission();
+  
+  // Set DLPF to ~41Hz
+  I2CMPU.beginTransmission(0x68);
+  I2CMPU.write(0x1A);
+  I2CMPU.write(0x03);
+  I2CMPU.endTransmission();
+  return true;
+}
+
 // --- Status LEDs and Buzzer ---
 // Note: LED_RED and BUZZER_PIN moved to avoid LoRa pin conflicts
 #define LED_GREEN  27
 #define LED_YELLOW 25
 #define LED_RED    2
-#define BUZZER_PIN 4
+#define BUZZER_PIN 15
 
 // --- Custom Bitmaps (16x16) ---
 const unsigned char icon_car[] PROGMEM = {
@@ -83,14 +126,29 @@ void setup() {
     for(;;);
   }
   
+  I2CMPU.begin(MPU_SDA, MPU_SCL);
+  if (!initMPU6050()) {
+    display.clearDisplay();
+    display.setFont(&FreeSans9pt7b);
+    display.setTextColor(SH110X_WHITE);
+    display.setCursor(0,20);
+    display.print("MPU Fail!");
+    display.display();
+    while (1);
+  }
+  Serial.println("MPU6050 initialized via raw I2C.");
+
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_YELLOW, OUTPUT);
   pinMode(LED_RED, OUTPUT);
+  
+  // Setting buzzer to simple HIGH/LOW logic (100% MAX voltage)
   pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW); // Start silent
+
   digitalWrite(LED_GREEN, LOW);
   digitalWrite(LED_YELLOW, LOW);
   digitalWrite(LED_RED, LOW);
-  noTone(BUZZER_PIN);
 
   // Setup LoRa
   LoRa.setPins(ss, rst, dio0);
@@ -184,8 +242,19 @@ void drawStateTracking(unsigned long currentMillis) {
 void drawStateWarning(unsigned long currentMillis) {
   bool flash = (currentMillis / 150) % 2 == 0;
   
-  uint8_t activeEvent = receivedAlert.event;
-  char activeId = receivedAlert.vehicle_id;
+  uint8_t activeEvent = 0;
+  char activeId = '?';
+  bool isLocal = false;
+  
+  if (myState.event == 4 || myState.event == 5 || myState.event == 8) {
+    activeEvent = myState.event;
+    activeId = myState.vehicle_id;
+    isLocal = true;
+  } else {
+    activeEvent = receivedAlert.event;
+    activeId = receivedAlert.vehicle_id;
+  }
+  
   bool isSevere = (activeEvent == 4 || activeEvent == 5 || activeEvent == 8);
   
   if (isSevere) {
@@ -211,7 +280,9 @@ void drawStateWarning(unsigned long currentMillis) {
     display.setFont();
     display.setCursor(20, 45);
     
-    if (activeEvent == 8) {
+    if (isLocal) {
+      display.print(F("EVACUATE VEHICLE"));
+    } else if (activeEvent == 8) {
       display.setCursor(10, 45); 
       display.print(F("VEHICLE BEHIND"));
     } else {
@@ -238,8 +309,12 @@ void drawStateWarning(unsigned long currentMillis) {
   
   display.setFont();
   display.setCursor(0, 26);
-  display.print(F("FROM: Car "));
-  display.print(activeId);
+  if (isLocal) {
+    display.print(F("FROM: LOCAL SENSOR"));
+  } else {
+    display.print(F("FROM: Car "));
+    display.print(activeId);
+  }
   
   if (flash) display.drawLine(0, 36, 128, 36, SH110X_BLACK);
   else display.drawLine(0, 36, 128, 36, SH110X_WHITE);
@@ -293,8 +368,11 @@ void loop() {
     }
   }
 
-  // 2. Determine Event for Buzzer/LEDs based on received alert
-  uint8_t activeEventBuzzer = (currentState == STATE_WARNING) ? receivedAlert.event : 0;
+  // 2. Determine Event for Buzzer/LEDs based on received alert or local state
+  uint8_t activeEventBuzzer = myState.event;
+  if (currentState == STATE_WARNING && receivedAlert.event != 0) {
+    activeEventBuzzer = receivedAlert.event;
+  }
   
   // Update Status LEDs & Buzzer
   if (currentState != STATE_BOOT && currentState != STATE_WAITING) {
@@ -303,37 +381,88 @@ void loop() {
       digitalWrite(LED_RED, flash ? HIGH : LOW);
       digitalWrite(LED_YELLOW, flash ? LOW : HIGH);
       digitalWrite(LED_GREEN, LOW);
-      if (flash) tone(BUZZER_PIN, 1000);
-      else tone(BUZZER_PIN, 700);
+      digitalWrite(BUZZER_PIN, HIGH); // Constant HIGH
     } else if (activeEventBuzzer == 4 || activeEventBuzzer == 9) { // CRASH / HARSH_BRAKING
       digitalWrite(LED_RED, HIGH);
       digitalWrite(LED_YELLOW, LOW);
       digitalWrite(LED_GREEN, LOW);
-      if ((currentMillis / 50) % 2 == 0) tone(BUZZER_PIN, 2000);
-      else noTone(BUZZER_PIN);
+      if ((currentMillis / 50) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
+      else digitalWrite(BUZZER_PIN, LOW);
     } else if (activeEventBuzzer == 1 || activeEventBuzzer == 5 || activeEventBuzzer == 2) { // OVERSPEED / HAZARD / TRACTN
       digitalWrite(LED_RED, LOW);
       digitalWrite(LED_YELLOW, HIGH);
       digitalWrite(LED_GREEN, LOW);
-      if ((currentMillis / 200) % 2 == 0) tone(BUZZER_PIN, 1000);
-      else noTone(BUZZER_PIN);
+      if ((currentMillis / 200) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
+      else digitalWrite(BUZZER_PIN, LOW);
     } else { // NORMAL
       digitalWrite(LED_RED, LOW);
       digitalWrite(LED_YELLOW, LOW);
       digitalWrite(LED_GREEN, HIGH);
-      noTone(BUZZER_PIN);
+      digitalWrite(BUZZER_PIN, LOW);
     }
   } else {
     // Turn off in boot/waiting state
     digitalWrite(LED_RED, LOW);
     digitalWrite(LED_YELLOW, LOW);
     digitalWrite(LED_GREEN, LOW);
-    noTone(BUZZER_PIN);
+    digitalWrite(BUZZER_PIN, LOW);
   }
 
-  // 3. State Machine Logic
+  // 3. Handle Sensors (Send to PC)
+  static unsigned long lastMpuUpdate = 0;
+  if (currentMillis - lastMpuUpdate > 50) { // 20 Hz
+    lastMpuUpdate = currentMillis;
+    
+    I2CMPU.beginTransmission(0x68);
+    I2CMPU.write(0x3B);
+    I2CMPU.endTransmission(false);
+    I2CMPU.requestFrom((uint16_t)0x68, (uint8_t)14, true);
+    
+    if (I2CMPU.available() >= 14) {
+      int16_t rax = (I2CMPU.read() << 8) | I2CMPU.read();
+      int16_t ray = (I2CMPU.read() << 8) | I2CMPU.read();
+      int16_t raz = (I2CMPU.read() << 8) | I2CMPU.read();
+      I2CMPU.read(); I2CMPU.read(); // Skip temp
+      int16_t rgx = (I2CMPU.read() << 8) | I2CMPU.read();
+      int16_t rgy = (I2CMPU.read() << 8) | I2CMPU.read();
+      int16_t rgz = (I2CMPU.read() << 8) | I2CMPU.read();
+      
+      float ax = (rax / 16384.0) * 9.80665;
+      float ay = (ray / 16384.0) * 9.80665;
+      float az = (raz / 16384.0) * 9.80665;
+      
+      float gx = (rgx / 131.0) * 0.0174533;
+      float gy = (rgy / 131.0) * 0.0174533;
+      float gz = (rgz / 131.0) * 0.0174533;
+      
+      // Calculate Tilt (Roll & Pitch)
+      float roll = atan2(ay, sqrt(ax*ax + az*az)) * 180.0 / PI;
+      float pitch = atan2(-ax, sqrt(ay*ay + az*az)) * 180.0 / PI;
+      
+      // Tilt Warning Logic (Rollover Detection)
+      if (abs(roll) > 55.0 || abs(pitch) > 55.0) {
+        myState.event = 4; // 4 = CRASH / ROLLOVER event
+      } else {
+        if (myState.event == 4) myState.event = 0; // Clear it if upright
+      }
+      
+      Serial.print("MPU:");
+      Serial.print(ax); Serial.print(",");
+      Serial.print(ay); Serial.print(",");
+      Serial.print(az); Serial.print(",");
+      Serial.print(gx); Serial.print(",");
+      Serial.print(gy); Serial.print(",");
+      Serial.println(gz);
+    }
+  }
+
+  // 4. State Machine Logic
   if (currentState != STATE_BOOT) {
-    if (currentMillis - alertReceivedTime < ALERT_DISPLAY_TIME && alertReceivedTime != 0) {
+    bool localSevere = (myState.event == 4 || myState.event == 5 || myState.event == 8);
+    
+    if (localSevere) {
+      currentState = STATE_WARNING;
+    } else if (currentMillis - alertReceivedTime < ALERT_DISPLAY_TIME && alertReceivedTime != 0) {
       currentState = STATE_WARNING;
     } else if (currentMillis - lastLoRaUpdate > 5000) {
       // Auto-switch to waiting if no LoRa data for 5 seconds
@@ -345,7 +474,7 @@ void loop() {
     }
   }
 
-  // 4. Render Current State (Throttled to ~30 FPS)
+  // 5. Render Current State (Throttled to ~30 FPS)
   static unsigned long lastDisplayUpdate = 0;
   if (currentMillis - lastDisplayUpdate > 33) {
     lastDisplayUpdate = currentMillis;

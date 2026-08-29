@@ -54,7 +54,12 @@ The Receiver node acts like the standard dashboard but receives data via LoRa in
 | **LED Green**     | GPIO 27              | Status LED (Normal / Safe)                |
 | **LED Yellow**    | GPIO 25              | Status LED (Overspeed / Ambulance)        |
 | **LED Red**       | **GPIO 2**           | Status LED (Harsh Brake / Crash) - *MOVED*|
-| **Buzzer**        | **GPIO 4**           | Passive buzzer for auditory alerts - *MOVED*|
+| **Buzzer**        | **GPIO 15**          | Passive buzzer for auditory alerts - *MOVED*|
+| **MPU (I2C 1)**   | GPIO 32 (SDA)        | Secondary I2C Data Line for MPU6050       |
+| **MPU (I2C 1)**   | GPIO 33 (SCL)        | Secondary I2C Clock Line for MPU6050      |
 | **LoRa NSS**      | GPIO 5               | SPI Chip Select for LoRa                  |
 | **LoRa RST**      | GPIO 14              | Reset for LoRa                            |
 | **LoRa DIO0**     | GPIO 26              | Interrupt for LoRa                        |
+| **LoRa MOSI**     | GPIO 23              | Standard VSPI MOSI                        |
+| **LoRa MISO**     | GPIO 19              | Standard VSPI MISO                        |
+| **LoRa SCK**      | GPIO 18              | Standard VSPI SCK                         |
