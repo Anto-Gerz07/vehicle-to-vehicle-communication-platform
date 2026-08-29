@@ -1,4 +1,4 @@
-# Decentralized EV Vehicle-to-Vehicle (V2V) Communication Platform
+# Decentralized Vehicle-to-Vehicle (V2V) Communication Platform
 
 ## What We Did
 We built a decentralized communication system that enables vehicles to exchange real-time safety and traffic information without relying on cloud connectivity. By leveraging edge computing on ESP32 microcontrollers, vehicles achieve low-latency communication to avoid collisions, share road hazards, and support cooperative driving. 
