@@ -48,14 +48,6 @@ class ESP32SerialBridge:
         self.vehicle_id = "BRIDGE"
         self.network = network
         
-        import serial.tools.list_ports
-        available = [p.device for p in serial.tools.list_ports.comports()]
-        if port not in available:
-            usb_ports = [p for p in available if 'USB' in p or 'ACM' in p]
-            if usb_ports:
-                print(f"[SerialBridge] Port {port} not found, auto-detecting: {usb_ports[0]}")
-                port = usb_ports[0]
-                
         self.port = port
         self.baudrate = baudrate
         self.ser = None

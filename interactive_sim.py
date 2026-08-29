@@ -28,11 +28,11 @@ class RealisticV2VSimulator:
         self.network = V2VNetwork()
         self.bridge = ESP32SerialBridge(self.network, port=port, baudrate=115200)
         self.sensor = SensorSim(initial_speed=0.0)
-        self.rule_engine = RuleEngine(speed_limit=25.0) # 90 km/h in m/s
+        self.rule_engine = RuleEngine(speed_limit=33.33) # 120 km/h in m/s
         self.ml_engine = MLEngine()
         self.risk_engine = RiskEngine()
         
-        self.vehicle_id = "A"
+        self.vehicle_id = "B" if "USB2" in port else "A"
         self.seq = 0
         
         # Physics State
@@ -308,10 +308,10 @@ class RealisticV2VSimulator:
             current_time = time.time()
             
             # --- Input Smoothing ---
-            # W = Normal Drive (max 45% throttle, smooth), Up = Harsh Drive (100% throttle, fast)
-            if self.inputs['up']: 
+            # W = Harsh Drive (100% throttle, fast), Up = Normal Drive (max 45% throttle, smooth)
+            if self.inputs['w']: 
                 self.throttle_val = min(1.0, self.throttle_val + dt * 2.5) # Very fast response
-            elif self.inputs['w']:
+            elif self.inputs['up']:
                 self.throttle_val = min(0.45, self.throttle_val + dt * 0.5) # Gentle, smooth response
             else: 
                 self.throttle_val = max(0.0, self.throttle_val - dt * 1.5)

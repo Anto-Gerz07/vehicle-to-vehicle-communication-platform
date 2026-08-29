@@ -89,6 +89,7 @@ VehicleStatePacket receivedAlert;
 
 unsigned long lastLoRaUpdate = 0;
 unsigned long alertReceivedTime = 0;
+unsigned long lastSerialUpdate = 0;
 const unsigned long ALERT_DISPLAY_TIME = 3500; 
 
 enum DisplayState { STATE_BOOT, STATE_WAITING, STATE_TRACKING, STATE_WARNING };
@@ -255,6 +256,21 @@ void drawStateWarning(unsigned long currentMillis) {
 void loop() {
   unsigned long currentMillis = millis();
   
+  // Handle PC Serial Input Non-Blocking
+  while (Serial.available() >= sizeof(VehicleStatePacket) + 2) {
+    if (Serial.read() == 0xAA) {
+      if (Serial.peek() == 0x55) {
+        Serial.read(); // Consume 0x55
+        
+        VehicleStatePacket packet;
+        if (Serial.readBytes((char*)&packet, sizeof(VehicleStatePacket)) == sizeof(VehicleStatePacket)) {
+          memcpy(&myState, &packet, sizeof(VehicleStatePacket));
+          lastSerialUpdate = currentMillis;
+        }
+      }
+    }
+  }
+
   // 1. Process incoming LoRa packets
   int packetSize = LoRa.parsePacket();
   if (packetSize == sizeof(VehicleStatePacket)) {
@@ -292,49 +308,41 @@ void loop() {
     activeEventBuzzer = receivedAlert.event;
   }
   
-  // Update Status LEDs & Buzzer
-  if (currentState != STATE_BOOT && currentState != STATE_WAITING) {
-    if (activeEventBuzzer == 8) { // AMBULANCE PATTERN
-      bool flash = (currentMillis / 100) % 2 == 0;
-      digitalWrite(LED_RED, flash ? HIGH : LOW);
-      digitalWrite(LED_YELLOW, flash ? LOW : HIGH);
-      digitalWrite(LED_GREEN, LOW);
-      // Distinct slow pulsating beep for ambulance
-      if ((currentMillis / 400) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
-      else digitalWrite(BUZZER_PIN, LOW);
-    } else if (activeEventBuzzer == 4 || activeEventBuzzer == 9) { // CRASH / HARSH_BRAKING
-      digitalWrite(LED_RED, HIGH);
-      digitalWrite(LED_YELLOW, LOW);
-      digitalWrite(LED_GREEN, LOW);
-      // Urgent fast continuous beeping
-      if ((currentMillis / 100) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
-      else digitalWrite(BUZZER_PIN, LOW);
-    } else if (activeEventBuzzer == 1) { // OVERSPEED
-      digitalWrite(LED_RED, LOW);
-      digitalWrite(LED_YELLOW, HIGH);
-      digitalWrite(LED_GREEN, LOW);
-      // Warning double-beep pattern
-      int cycle = currentMillis % 1000;
-      if (cycle < 100 || (cycle > 200 && cycle < 300)) digitalWrite(BUZZER_PIN, HIGH);
-      else digitalWrite(BUZZER_PIN, LOW);
-    } else if (activeEventBuzzer == 5 || activeEventBuzzer == 2) { // HAZARD / TRACTN
-      digitalWrite(LED_RED, LOW);
-      digitalWrite(LED_YELLOW, HIGH);
-      digitalWrite(LED_GREEN, LOW);
-      // Slow steady warning beep
-      if ((currentMillis / 500) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
-      else digitalWrite(BUZZER_PIN, LOW);
-    } else { // NORMAL
-      digitalWrite(LED_RED, LOW);
-      digitalWrite(LED_YELLOW, LOW);
-      digitalWrite(LED_GREEN, HIGH);
-      digitalWrite(BUZZER_PIN, LOW);
-    }
-  } else {
-    // Turn off in boot/waiting state
-    digitalWrite(LED_RED, LOW);
+  // Update Status LEDs & Buzzer (Continuous Evaluation)
+  if (activeEventBuzzer == 8) { // AMBULANCE PATTERN
+    bool flash = (currentMillis / 100) % 2 == 0;
+    digitalWrite(LED_RED, flash ? HIGH : LOW);
+    digitalWrite(LED_YELLOW, flash ? LOW : HIGH);
+    digitalWrite(LED_GREEN, LOW);
+    // Distinct slow pulsating beep for ambulance
+    if ((currentMillis / 400) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
+    else digitalWrite(BUZZER_PIN, LOW);
+  } else if (activeEventBuzzer == 4 || activeEventBuzzer == 9) { // CRASH / HARSH_BRAKING
+    digitalWrite(LED_RED, HIGH);
     digitalWrite(LED_YELLOW, LOW);
     digitalWrite(LED_GREEN, LOW);
+    // Urgent fast continuous beeping
+    if ((currentMillis / 100) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
+    else digitalWrite(BUZZER_PIN, LOW);
+  } else if (activeEventBuzzer == 1) { // OVERSPEED
+    digitalWrite(LED_RED, LOW);
+    digitalWrite(LED_YELLOW, HIGH);
+    digitalWrite(LED_GREEN, LOW);
+    // Warning double-beep pattern
+    int cycle = currentMillis % 1000;
+    if (cycle < 100 || (cycle > 200 && cycle < 300)) digitalWrite(BUZZER_PIN, HIGH);
+    else digitalWrite(BUZZER_PIN, LOW);
+  } else if (activeEventBuzzer == 5 || activeEventBuzzer == 2) { // HAZARD / TRACTN
+    digitalWrite(LED_RED, LOW);
+    digitalWrite(LED_YELLOW, HIGH);
+    digitalWrite(LED_GREEN, LOW);
+    // Slow steady warning beep
+    if ((currentMillis / 500) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
+    else digitalWrite(BUZZER_PIN, LOW);
+  } else { // NORMAL
+    digitalWrite(LED_RED, LOW);
+    digitalWrite(LED_YELLOW, LOW);
+    digitalWrite(LED_GREEN, HIGH);
     digitalWrite(BUZZER_PIN, LOW);
   }
 
@@ -394,10 +402,10 @@ void loop() {
       currentState = STATE_WARNING;
     } else if (currentMillis - alertReceivedTime < ALERT_DISPLAY_TIME && alertReceivedTime != 0) {
       currentState = STATE_WARNING;
-    } else if (currentMillis - lastLoRaUpdate > 5000) {
-      // Auto-switch to waiting if no LoRa data for 5 seconds
+    } else if (currentMillis - lastLoRaUpdate > 5000 && currentMillis - lastSerialUpdate > 5000) {
+      // Auto-switch to waiting if no data for 5 seconds
       currentState = STATE_WAITING;
-    } else if (lastLoRaUpdate != 0) {
+    } else if (lastLoRaUpdate != 0 || lastSerialUpdate != 0) {
       currentState = STATE_TRACKING;
     } else {
       currentState = STATE_WAITING;
@@ -418,5 +426,25 @@ void loop() {
     }
     
     display.display();
+  }
+
+  // 6. Transmit LoRa if Event is Active (max 5Hz)
+  // Car 2 (Back) only transmits alerts relevant to the car in front of it.
+  // It transmits: Overspeed (1) and Ambulance (8).
+  // It DOES NOT transmit Crash, Hazard, or Brake forward.
+  static unsigned long lastLoRaSendLocal = 0;
+  if ((myState.event == 1 || myState.event == 8) && currentMillis - lastLoRaSendLocal > 200) {
+    lastLoRaSendLocal = currentMillis;
+    
+    delay(random(5, 25)); // Small CSMA jitter to avoid collisions
+    
+    LoRa.beginPacket();
+    LoRa.write((uint8_t*)&myState, sizeof(VehicleStatePacket));
+    LoRa.endPacket();
+    
+    Serial.print("LORA TX -> ID: ");
+    Serial.print(myState.vehicle_id);
+    Serial.print(" | Event: ");
+    Serial.println(myState.event);
   }
 }

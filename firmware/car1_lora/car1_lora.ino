@@ -57,6 +57,18 @@ void setup() {
     return;
   }
   esp_now_register_recv_cb(OnDataRecv);
+  
+  // Register ESP-NOW broadcast peer for forwarding LoRa data back to Car 1
+  uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  esp_now_peer_info_t peerInfo;
+  memset(&peerInfo, 0, sizeof(peerInfo));
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Failed to add ESP-NOW peer");
+  }
+  
   Serial.println("ESP-NOW Ready");
 
   // Setup LoRa transceiver module
@@ -78,7 +90,26 @@ void setup() {
 }
 
 void loop() {
-  // If we have a new ESP-NOW packet and enough time has passed to send via LoRa
+  // 1. Check for incoming LoRa packets (from Car 2)
+  int packetSize = LoRa.parsePacket();
+  if (packetSize == sizeof(VehicleStatePacket)) {
+    VehicleStatePacket incoming;
+    int bytesRead = LoRa.readBytes((uint8_t*)&incoming, sizeof(incoming));
+    if (bytesRead == sizeof(incoming)) {
+      // Forward valid alerts back to Car 1 via ESP-NOW
+      if ((incoming.vehicle_id == 'A' || incoming.vehicle_id == 'B') && incoming.event > 0 && incoming.event <= 10) {
+        Serial.print("LORA RX -> ID: ");
+        Serial.print(incoming.vehicle_id);
+        Serial.print(" | Event: ");
+        Serial.println(incoming.event);
+        
+        uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        esp_now_send(broadcastAddress, (uint8_t *) &incoming, sizeof(incoming));
+      }
+    }
+  }
+
+  // 2. Check for incoming ESP-NOW packets (from Car 1) to transmit over LoRa
   if (newPacketAvailable && (millis() - lastLoRaSend >= LORA_SEND_INTERVAL)) {
     VehicleStatePacket packetToSend;
     
@@ -88,16 +119,23 @@ void loop() {
     newPacketAvailable = false;
     interrupts();
 
-    Serial.print("Forwarding ESP-NOW Packet -> ID: ");
-    Serial.print(packetToSend.vehicle_id);
-    Serial.print(" | Event: ");
-    Serial.println(packetToSend.event);
+    // Car 1 (Front) only transmits hazards to the cars behind it.
+    // It transmits: Crash (4), Hazard/Traction Loss (5, 2), and Harsh Brake (9).
+    // It DOES NOT transmit Overspeed (1) or Ambulance (8) backwards.
+    if (packetToSend.event == 4 || packetToSend.event == 5 || packetToSend.event == 2 || packetToSend.event == 9) {
+      Serial.print("Forwarding ESP-NOW Alert -> ID: ");
+      Serial.print(packetToSend.vehicle_id);
+      Serial.print(" | Event: ");
+      Serial.println(packetToSend.event);
+      
+      delay(random(5, 25)); // Small CSMA jitter to avoid collisions
 
-    // Send the raw binary packet over LoRa
-    LoRa.beginPacket();
-    LoRa.write((uint8_t*)&packetToSend, sizeof(VehicleStatePacket));
-    LoRa.endPacket();
+      // Send the raw binary packet over LoRa
+      LoRa.beginPacket();
+      LoRa.write((uint8_t*)&packetToSend, sizeof(VehicleStatePacket));
+      LoRa.endPacket();
 
-    lastLoRaSend = millis();
+      lastLoRaSend = millis();
+    }
   }
 }
