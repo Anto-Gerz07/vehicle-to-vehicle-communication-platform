@@ -5,6 +5,10 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <TinyGPS++.h>
+#include <SD.h>
+#include <SPI.h>
+
+#define SD_CS 5
 
 // Removed Adafruit_MPU6050 for MPU6500 raw I2C compatibility
 #include <esp_idf_version.h>
@@ -141,6 +145,29 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
       alertReceivedTime = millis();
       currentState = STATE_WARNING;
     }
+    
+    // Log incoming telemetry to blackbox SD
+    logBlackbox(incoming);
+  }
+}
+
+void logBlackbox(VehicleStatePacket state) {
+  File logFile = SD.open("/blackbox.csv", FILE_APPEND);
+  if (logFile) {
+    logFile.print(millis());
+    logFile.print(",");
+    logFile.print(state.vehicle_id);
+    logFile.print(",");
+    logFile.print(state.latitude, 6);
+    logFile.print(",");
+    logFile.print(state.longitude, 6);
+    logFile.print(",");
+    logFile.print(state.speed_x100 / 100.0);
+    logFile.print(",");
+    logFile.print(state.accel_x100 / 100.0);
+    logFile.print(",");
+    logFile.println(state.event);
+    logFile.close();
   }
 }
 
@@ -148,8 +175,23 @@ void setup() {
   Serial.begin(115200);
   GPS.begin(9600, SERIAL_8N1, RXD2, TXD2);
   
+  if (!SD.begin(SD_CS)) {
+    Serial.println(F("SD Card Mount Failed"));
+  } else {
+    Serial.println(F("SD Card Mount Successful"));
+    File testFile = SD.open("/blackbox.csv");
+    if (!testFile || testFile.size() == 0) {
+      if (testFile) testFile.close();
+      File logFile = SD.open("/blackbox.csv", FILE_WRITE);
+      if (logFile) {
+        logFile.println(F("timestamp_ms,vehicle_id,lat,lon,speed,accel,event"));
+        logFile.close();
+      }
+    } else {
+      testFile.close();
+    }
+  }
 
-  
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
     for(;;);
@@ -500,6 +542,9 @@ void loop() {
           
           // Broadcast via ESP-NOW
           esp_now_send(broadcastAddress, (uint8_t *) &myState, sizeof(myState));
+          
+          // Log local telemetry to blackbox SD
+          logBlackbox(myState);
         }
       }
     }
@@ -532,6 +577,7 @@ void loop() {
     myState.latitude = gps.location.isValid() ? gps.location.lat() : 0.0;
     myState.longitude = gps.location.isValid() ? gps.location.lng() : 0.0;
     esp_now_send(broadcastAddress, (uint8_t *) &myState, sizeof(myState));
+    logBlackbox(myState);
   }
   
   // Constantly feed the GPS parser
