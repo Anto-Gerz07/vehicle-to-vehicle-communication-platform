@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>V2V Dynamic Navigation & Multi-Vehicle Map</title>
+    <title>V2V Dynamic Navigation & Emergency Vehicle Map</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 
     <!-- Leaflet Core CSS & JS -->
@@ -158,9 +158,7 @@
         .nav-input-group input:focus { border-color: var(--primary); }
         .autocomplete-list {
             position: absolute;
-            top: 100%;
-            left: 0;
-            right: 0;
+            top: 100%; left: 0; right: 0;
             background: #1e293b;
             border: 1px solid var(--card-border);
             border-radius: 8px;
@@ -257,7 +255,7 @@
             color: white;
         }
 
-        /* Proximity Alert Banner */
+        /* Proximity & Emergency Siren Alert Banner */
         #proximity-banner {
             position: absolute;
             top: 75px;
@@ -277,6 +275,28 @@
         @keyframes pulseAlert {
             0% { transform: translateX(-50%) scale(1); }
             100% { transform: translateX(-50%) scale(1.04); }
+        }
+
+        /* Emergency Vehicle Siren Banner (Approaching from behind) */
+        #emergency-siren-banner {
+            position: absolute;
+            top: 75px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1600;
+            display: none;
+            align-items: center;
+            gap: 14px;
+            background: linear-gradient(135deg, #dc2626, #2563eb);
+            border: 2px solid #fff;
+            padding: 14px 28px;
+            border-radius: 35px;
+            box-shadow: 0 0 35px rgba(220, 38, 38, 0.9), 0 0 35px rgba(37, 99, 235, 0.9);
+            animation: sirenStrobeBanner 0.5s infinite alternate;
+        }
+        @keyframes sirenStrobeBanner {
+            0% { background: linear-gradient(135deg, #dc2626, #2563eb); }
+            100% { background: linear-gradient(135deg, #2563eb, #dc2626); }
         }
 
         /* Modal Overlays */
@@ -344,19 +364,19 @@
         .vk-key-wide { flex: 1.6; font-size: 13px; }
         .vk-key-space { flex: 4; }
 
-        /* Vehicle Arrow Marker Styling */
+        /* Normal Vehicle Arrow Styling */
         .car-marker-container {
             position: relative;
-            width: 36px;
-            height: 36px;
+            width: 38px;
+            height: 38px;
             display: flex;
             align-items: center;
             justify-content: center;
         }
         .car-pulse {
             position: absolute;
-            width: 36px;
-            height: 36px;
+            width: 38px;
+            height: 38px;
             border-radius: 50%;
             background: rgba(59, 130, 246, 0.35);
             animation: radarPulse 2s infinite;
@@ -366,8 +386,8 @@
             100% { transform: scale(2.2); opacity: 0; }
         }
         .car-arrow {
-            width: 30px;
-            height: 30px;
+            width: 32px;
+            height: 32px;
             transform-origin: 50% 50%;
             transition: transform 0.25s ease-out;
             filter: drop-shadow(0 2px 5px rgba(0,0,0,0.6));
@@ -375,14 +395,58 @@
         .car-tag {
             position: absolute;
             top: -18px;
-            background: rgba(15,23,42,0.9);
-            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(15,23,42,0.92);
+            border: 1px solid rgba(255,255,255,0.25);
             color: #60a5fa;
             font-size: 10px;
             font-weight: 800;
             padding: 1px 6px;
             border-radius: 8px;
             white-space: nowrap;
+            letter-spacing: 0.5px;
+        }
+
+        /* ==================== EMERGENCY VEHICLE STYLES ==================== */
+        /* 1. Flashing Red/Blue Lightbar (When BEHIND a normal vehicle) */
+        .emergency-flashing-container .car-pulse {
+            animation: emergencyStrobePulse 0.35s infinite alternate;
+        }
+        @keyframes emergencyStrobePulse {
+            0% { background: rgba(239, 68, 68, 0.85); transform: scale(1.0); box-shadow: 0 0 25px #ef4444; }
+            100% { background: rgba(59, 130, 246, 0.85); transform: scale(2.4); box-shadow: 0 0 25px #3b82f6; }
+        }
+
+        .emergency-flashing-container .car-arrow {
+            animation: emergencyArrowFlash 0.35s infinite alternate;
+        }
+        @keyframes emergencyArrowFlash {
+            0% { filter: drop-shadow(0 0 10px #ef4444) brightness(1.3); }
+            100% { filter: drop-shadow(0 0 10px #3b82f6) brightness(1.3); }
+        }
+
+        .emergency-tag-flashing {
+            background: #dc2626 !important;
+            color: #ffffff !important;
+            border: 1px solid #ffffff !important;
+            animation: tagStrobe 0.35s infinite alternate;
+        }
+        @keyframes tagStrobe {
+            0% { background: #dc2626; color: #fff; }
+            100% { background: #2563eb; color: #fff; }
+        }
+
+        /* 2. Plain Red Arrow (Once it CROSSES ahead of normal vehicles) */
+        .emergency-passed-container .car-pulse {
+            background: rgba(239, 68, 68, 0.4);
+            animation: radarPulse 2s infinite;
+        }
+        .emergency-passed-container .car-arrow {
+            filter: drop-shadow(0 2px 6px rgba(220,38,38,0.7));
+        }
+        .emergency-tag-passed {
+            background: rgba(15,23,42,0.92) !important;
+            color: #ef4444 !important;
+            border: 1px solid #ef4444 !important;
         }
 
         /* Hazard Marker Styles */
@@ -409,7 +473,7 @@
             right: 14px;
             z-index: 1000;
             padding: 12px 16px;
-            max-width: 260px;
+            max-width: 270px;
         }
 
         /* Toast Notification */
@@ -451,13 +515,31 @@
         </div>
         <div class="hud-divider"></div>
         <div class="hud-stat">
-            <span class="hud-label">Vehicles Online</span>
+            <span class="hud-label">Fleet</span>
             <span class="hud-value" id="hud-vehicles-count" style="color:#60a5fa;">1</span>
         </div>
         <div class="hud-divider"></div>
         <div class="hud-stat">
             <span class="hud-label">Hazards</span>
             <span class="hud-value" id="hud-hazards-count" style="color:var(--accent-bump);">0</span>
+        </div>
+    </div>
+
+    <!-- Emergency Siren Alert Banner (Active when Emergency Vehicle is behind) -->
+    <div id="emergency-siren-banner">
+        <span style="font-size:26px;">🚨</span>
+        <div>
+            <div id="emerg-banner-title" style="font-weight:800; font-size:14px; color:#fff;">EMERGENCY VEHICLE APPROACHING BEHIND!</div>
+            <div id="emerg-banner-desc" style="font-size:12px; color:#fee2e2;">Ambulance 95m behind you. Please yield / move to the side!</div>
+        </div>
+    </div>
+
+    <!-- Proximity Alert Banner (For potholes/hazards) -->
+    <div id="proximity-banner">
+        <span style="font-size:22px;">⚠️</span>
+        <div>
+            <div id="prox-title" style="font-weight:800; font-size:14px; color:#fff;">HAZARD AHEAD!</div>
+            <div id="prox-desc" style="font-size:12px; color:#fecaca;">Pothole detected 35 meters away.</div>
         </div>
     </div>
 
@@ -491,15 +573,6 @@
         </div>
     </div>
 
-    <!-- Proximity Alert Banner -->
-    <div id="proximity-banner">
-        <span style="font-size:22px;">⚠️</span>
-        <div>
-            <div id="prox-title" style="font-weight:800; font-size:14px; color:#fff;">HAZARD AHEAD!</div>
-            <div id="prox-desc" style="font-size:12px; color:#fecaca;">Pothole detected 35 meters away.</div>
-        </div>
-    </div>
-
     <!-- Quick Hazard Reporting Toolbar -->
     <div id="hazard-bar" class="glass-panel">
         <button class="hazard-btn btn-pothole" onclick="quickReport('pothole')">
@@ -529,21 +602,24 @@
         </button>
     </div>
 
-    <!-- Built-in Simulation Panel (For testing indoors without moving outside) -->
+    <!-- Built-in Simulation Panel (Test Emergency Behind / Ahead & Drive) -->
     <div id="sim-drawer" class="glass-panel">
         <div style="font-size:12px; font-weight:700; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
-            <span>🧪 Virtual Test Drive</span>
+            <span>🚑 Emergency V2V Simulator</span>
             <span id="sim-indicator" style="font-size:10px; color:#10b981;">READY</span>
         </div>
         <div style="display:flex; flex-direction:column; gap:6px;">
-            <button id="sim-drive-btn" class="btn-sm btn-primary" onclick="toggleSimulatedDrive()">
+            <button class="btn-sm btn-danger" style="background:linear-gradient(135deg,#dc2626,#2563eb); color:white; font-size:11px; font-weight:bold;" onclick="spawnAmbulanceBehind()">
+                🚨 Spawn Ambulance Behind (Strobe Red/Blue)
+            </button>
+            <button class="btn-sm btn-secondary" style="font-size:11px; font-weight:bold;" onclick="overtakeAndPass()">
+                💨 Ambulance Overtakes & Passes (Turn Plain Red)
+            </button>
+            <button id="sim-drive-btn" class="btn-sm btn-primary" style="font-size:11px;" onclick="toggleSimulatedDrive()">
                 🚗 Start Test Drive
             </button>
-            <button class="btn-sm btn-secondary" onclick="teleportNearHazard()">
-                ⚡ Approach Nearest Hazard
-            </button>
             <button class="btn-sm btn-secondary" style="font-size:11px;" onclick="simulateCommunityNoVotes()">
-                👥 Mock 3 "NO" Votes
+                👥 Mock 3 "NO" Hazard Votes
             </button>
         </div>
     </div>
@@ -567,9 +643,7 @@
                         <option value="speed_bump">⚠️ Dangerous Speed Bump</option>
                         <option value="roadblock">🚧 Roadblock / Construction</option>
                         <option value="traffic">🚗💨 Traffic Gridlock</option>
-                        <option value="oil_spill">🛢️ Oil Spill / Slippery</option>
-                        <option value="flooding">🌊 Waterlogged / Flooded</option>
-                        <option value="accident">💥 Vehicle Collision</option>
+                        <option value="emergency">🚨 Emergency Corridor Request</option>
                         <option value="custom" selected>📍 Custom Hazard Event</option>
                     </select>
                 </div>
@@ -579,7 +653,7 @@
                         <option value="low">Low (Caution)</option>
                         <option value="medium" selected>Medium (Moderate Risk)</option>
                         <option value="high">High (Dangerous)</option>
-                        <option value="critical">Critical (Immediate Stop)</option>
+                        <option value="critical">Critical (Immediate Action)</option>
                     </select>
                 </div>
             </div>
@@ -596,13 +670,12 @@
                        style="width:100%; background:#0f172a; border:1px solid var(--card-border); color:white; padding:8px 12px; border-radius:8px; font-size:13px;" />
             </div>
 
-            <!-- Embedded Digital Virtual Keyboard for Touchscreens -->
+            <!-- Virtual Keyboard -->
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
                 <span style="font-size:11px; font-weight:700; color:var(--primary);">⌨️ Touchscreen Virtual Keyboard</span>
                 <span style="font-size:10px; color:var(--text-muted);">Tap keys or type on physical keyboard</span>
             </div>
             <div class="vk-container" id="vk-board">
-                <!-- Row 1: Numbers -->
                 <div class="vk-row">
                     <div class="vk-key" onclick="vkType('1')">1</div>
                     <div class="vk-key" onclick="vkType('2')">2</div>
@@ -616,7 +689,6 @@
                     <div class="vk-key" onclick="vkType('0')">0</div>
                     <div class="vk-key" onclick="vkType('-')">-</div>
                 </div>
-                <!-- Row 2: QWERTY -->
                 <div class="vk-row">
                     <div class="vk-key" onclick="vkType('Q')">Q</div>
                     <div class="vk-key" onclick="vkType('W')">W</div>
@@ -629,7 +701,6 @@
                     <div class="vk-key" onclick="vkType('O')">O</div>
                     <div class="vk-key" onclick="vkType('P')">P</div>
                 </div>
-                <!-- Row 3: ASDFGHJKL -->
                 <div class="vk-row">
                     <div class="vk-key" onclick="vkType('A')">A</div>
                     <div class="vk-key" onclick="vkType('S')">S</div>
@@ -641,7 +712,6 @@
                     <div class="vk-key" onclick="vkType('K')">K</div>
                     <div class="vk-key" onclick="vkType('L')">L</div>
                 </div>
-                <!-- Row 4: Shift, ZXCVBNM, Backspace -->
                 <div class="vk-row">
                     <div class="vk-key vk-key-wide" id="vk-shift" onclick="vkToggleShift()">⇧ Shift</div>
                     <div class="vk-key" onclick="vkType('Z')">Z</div>
@@ -653,7 +723,6 @@
                     <div class="vk-key" onclick="vkType('M')">M</div>
                     <div class="vk-key vk-key-wide" style="background:#475569;" onclick="vkBackspace()">⌫ Back</div>
                 </div>
-                <!-- Row 5: Space & Controls -->
                 <div class="vk-row">
                     <div class="vk-key vk-key-wide" style="background:#334155;" onclick="vkClear()">Clear</div>
                     <div class="vk-key vk-key-space" onclick="vkType(' ')">SPACE</div>
@@ -714,14 +783,10 @@
     <div id="map"></div>
 
     <script>
-        // Generate or retrieve persistent User/Client ID
-        var myUserId = localStorage.getItem('v2v_user_id');
-        if (!myUserId) {
-            myUserId = 'esp32_' + Math.random().toString(36).substring(2, 8);
-            localStorage.setItem('v2v_user_id', myUserId);
-        }
+        var myUserId = localStorage.getItem('v2v_user_id') || ('car_' + Math.random().toString(36).substring(2, 8));
+        localStorage.setItem('v2v_user_id', myUserId);
 
-        // 1. Initialize Map
+        // 1. Initialize Leaflet Map
         var defaultCoords = [12.8406, 80.1534];
         var map = L.map('map', {
             zoomControl: false,
@@ -732,22 +797,23 @@
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
-            attribution: '&copy; OpenStreetMap contributors | V2V Multi-Vehicle Cloud'
+            attribution: '&copy; OpenStreetMap contributors | V2V Multi-Vehicle & Emergency Fleet'
         }).addTo(map);
 
-        // Vehicle Colors for Multi-Vehicle fleets
-        var vehicleColors = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
+        var vehicleColors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'];
         function getVehicleColor(vId) {
             var hash = 0;
             for (var i = 0; i < vId.length; i++) hash = vId.charCodeAt(i) + ((hash << 5) - hash);
             return vehicleColors[Math.abs(hash) % vehicleColors.length];
         }
 
-        // Multi-Vehicle Tracker Map: vehicle_id -> { marker, trail, latLng, heading, speed }
+        // Vehicles State Dictionary
+        // vId -> { marker, trail, pos, heading, is_emergency, is_behind }
         var vehiclesMap = {};
         var myPrimaryVehicleId = null;
         var isFollowing = true;
 
+        // 2. Multi-Vehicle Marker Manager (Supports Emergency Red/Blue Strobe when Behind)
         function createOrUpdateVehicle(vData) {
             var vId = vData.vehicle_id || 'UNKNOWN';
             if (!myPrimaryVehicleId) myPrimaryVehicleId = vId;
@@ -755,50 +821,41 @@
             var lat = parseFloat(vData.lat);
             var lng = parseFloat(vData.lng);
             var pos = L.latLng(lat, lng);
-            var color = getVehicleColor(vId);
+            var isEmergency = Boolean(vData.is_emergency || vData.vehicle_type === 'emergency' || vId.toUpperCase().includes('AMBULANCE') || vId.toUpperCase().includes('EMERGENCY'));
 
             if (!vehiclesMap[vId]) {
-                var iconHtml = `
-                    <div class="car-marker-container">
-                        <div class="car-pulse" style="background:${color}55;"></div>
-                        <div class="car-tag" style="color:${color};">${vId}</div>
-                        <svg class="car-arrow" id="arrow-${vId}" viewBox="0 0 32 32">
-                            <path d="M16 2 L28 28 L16 22 L4 28 Z" fill="${color}" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
-                        </svg>
-                    </div>
-                `;
-                var vIcon = L.divIcon({
-                    className: '',
-                    html: iconHtml,
-                    iconSize: [36, 36],
-                    iconAnchor: [18, 18]
-                });
-
-                var marker = L.marker(pos, { icon: vIcon, zIndexOffset: 1000 }).addTo(map);
-                var trail = L.polyline([pos], { color: color, weight: 3.5, opacity: 0.7 }).addTo(map);
-
                 vehiclesMap[vId] = {
-                    marker: marker,
-                    trail: trail,
+                    marker: null,
+                    trail: null,
                     pos: pos,
-                    heading: vData.heading || 0
+                    heading: vData.heading || 0,
+                    is_emergency: isEmergency,
+                    is_behind: false
                 };
             }
 
             var entry = vehiclesMap[vId];
             entry.pos = pos;
-            entry.marker.setLatLng(pos);
+            entry.heading = vData.heading || 0;
+            entry.is_emergency = isEmergency;
 
-            var arrow = document.getElementById(`arrow-${vId}`);
-            if (arrow && typeof vData.heading === 'number') {
-                arrow.style.transform = `rotate(${vData.heading}deg)`;
+            // Recalculate relative position (Behind vs Ahead of normal cars)
+            recalculateEmergencyRelativities();
+
+            // Render/Update Marker HTML & Icon
+            renderVehicleMarker(vId, vData);
+
+            // Update Breadcrumb trail
+            if (!entry.trail) {
+                var trailColor = isEmergency ? '#ef4444' : getVehicleColor(vId);
+                entry.trail = L.polyline([pos], { color: trailColor, weight: isEmergency ? 4.5 : 3.5, opacity: 0.75 }).addTo(map);
+            } else {
+                entry.trail.addLatLng(pos);
+                var pts = entry.trail.getLatLngs();
+                if (pts.length > 300) entry.trail.setLatLngs(pts.slice(pts.length - 300));
             }
 
-            entry.trail.addLatLng(pos);
-            var pts = entry.trail.getLatLngs();
-            if (pts.length > 300) entry.trail.setLatLngs(pts.slice(pts.length - 300));
-
-            // If primary vehicle, update HUD and pan
+            // If this is my primary car, update HUD and check proximities
             if (vId === myPrimaryVehicleId || Object.keys(vehiclesMap).length === 1) {
                 updateTelemetryHUD(vData);
                 checkHazardProximities(pos);
@@ -808,16 +865,141 @@
             updateVehiclesCountHUD();
         }
 
-        function updateVehiclesCountHUD() {
-            var count = Object.keys(vehiclesMap).length;
-            document.getElementById('hud-vehicles-count').innerText = count;
+        // ==================== EMERGENCY VEHICLE RELATIVE POSITION ENGINE ====================
+        // Vector projection along normal vehicle's heading to check if Emergency Car is BEHIND or HAS PASSED
+        function isEmergencyBehindVehicle(normalPos, normalHeadingDeg, emergPos) {
+            // Normal vehicle forward vector
+            var rad = (normalHeadingDeg || 0) * Math.PI / 180;
+            var dx_forward = Math.sin(rad); // East component
+            var dy_forward = Math.cos(rad); // North component
+
+            // Relative vector from Normal Car to Emergency Car
+            var deltaLatMeters = (emergPos.lat - normalPos.lat) * 111320;
+            var deltaLngMeters = (emergPos.lng - normalPos.lng) * (111320 * Math.cos(normalPos.lat * Math.PI / 180));
+
+            // Longitudinal projection on forward axis (dot product)
+            var longitudinalProj = (deltaLngMeters * dx_forward) + (deltaLatMeters * dy_forward);
+            var totalDistMeters = Math.sqrt(deltaLatMeters * deltaLatMeters + deltaLngMeters * deltaLngMeters);
+
+            // If longitudinalProj < 0, emergency car is BEHIND!
+            // If totalDistMeters <= 350m, it is in relevant range
+            var isBehind = (longitudinalProj < 5 && totalDistMeters <= 350);
+            return {
+                isBehind: isBehind,
+                distanceMeters: Math.round(totalDistMeters),
+                longitudinalProj: longitudinalProj
+            };
         }
 
-        var activeHazardsMap = {};  // event_id -> { data, marker }
+        function recalculateEmergencyRelativities() {
+            var myCarEntry = (myPrimaryVehicleId && vehiclesMap[myPrimaryVehicleId]) ? vehiclesMap[myPrimaryVehicleId] : null;
+            var emergencyApproachingBehindMe = false;
+            var nearestEmergDist = Infinity;
+            var nearestEmergId = "";
+
+            for (var vId in vehiclesMap) {
+                var v = vehiclesMap[vId];
+                if (v.is_emergency) {
+                    var behindAnyNormalCar = false;
+
+                    // Check relative to all other normal cars
+                    for (var otherId in vehiclesMap) {
+                        var other = vehiclesMap[otherId];
+                        if (!other.is_emergency && other.pos) {
+                            var rel = isEmergencyBehindVehicle(other.pos, other.heading, v.pos);
+                            if (rel.isBehind) {
+                                behindAnyNormalCar = true;
+                                if (otherId === myPrimaryVehicleId) {
+                                    emergencyApproachingBehindMe = true;
+                                    if (rel.distanceMeters < nearestEmergDist) {
+                                        nearestEmergDist = rel.distanceMeters;
+                                        nearestEmergId = vId;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    v.is_behind = behindAnyNormalCar;
+                }
+            }
+
+            // Update Emergency Siren HUD banner
+            var sirenBanner = document.getElementById('emergency-siren-banner');
+            if (emergencyApproachingBehindMe && nearestEmergDist < 300) {
+                document.getElementById('emerg-banner-title').innerText = `🚨 EMERGENCY VEHICLE (${nearestEmergId}) BEHIND YOU!`;
+                document.getElementById('emerg-banner-desc').innerText = `Approaching ~${nearestEmergDist}m from behind. Please yield & clear lane!`;
+                sirenBanner.style.display = 'flex';
+                playChime('siren');
+            } else {
+                sirenBanner.style.display = 'none';
+            }
+        }
+
+        function renderVehicleMarker(vId, vData) {
+            var entry = vehiclesMap[vId];
+            var isEmergency = entry.is_emergency;
+            var isBehind = entry.is_behind;
+
+            var containerClass = 'car-marker-container';
+            var tagClass = 'car-tag';
+            var arrowColor = '#3b82f6';
+
+            if (isEmergency) {
+                arrowColor = '#dc2626';
+                if (isBehind) {
+                    // BEHIND NORMAL CAR: Flashing RED and BLUE strobe lightbar!
+                    containerClass += ' emergency-flashing-container';
+                    tagClass += ' emergency-tag-flashing';
+                } else {
+                    // AFTER CROSSING / AHEAD: Plain solid RED arrow
+                    containerClass += ' emergency-passed-container';
+                    tagClass += ' emergency-tag-passed';
+                }
+            } else {
+                arrowColor = getVehicleColor(vId);
+            }
+
+            var tagLabel = isEmergency ? (isBehind ? `🚨 ${vId} [SIREN]` : `🔴 ${vId}`) : vId;
+
+            var iconHtml = `
+                <div class="${containerClass}">
+                    <div class="car-pulse"></div>
+                    <div class="${tagClass}">${tagLabel}</div>
+                    <svg class="car-arrow" id="arrow-${vId}" viewBox="0 0 32 32">
+                        <path d="M16 2 L28 28 L16 22 L4 28 Z" fill="${arrowColor}" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+            `;
+
+            var vIcon = L.divIcon({
+                className: '',
+                html: iconHtml,
+                iconSize: [38, 38],
+                iconAnchor: [19, 19]
+            });
+
+            if (!entry.marker) {
+                entry.marker = L.marker(entry.pos, { icon: vIcon, zIndexOffset: isEmergency ? 2000 : 1000 }).addTo(map);
+            } else {
+                entry.marker.setIcon(vIcon);
+                entry.marker.setLatLng(entry.pos);
+            }
+
+            var arrowEl = document.getElementById(`arrow-${vId}`);
+            if (arrowEl && typeof entry.heading === 'number') {
+                arrowEl.style.transform = `rotate(${entry.heading}deg)`;
+            }
+        }
+
+        function updateVehiclesCountHUD() {
+            document.getElementById('hud-vehicles-count').innerText = Object.keys(vehiclesMap).length;
+        }
+
+        var activeHazardsMap = {};
         var activeProxHazardId = null;
         var answeredProximityCooldown = {};
 
-        // 3. Routing Setup
+        // 3. Routing Control
         var routingControl = L.Routing.control({
             waypoints: [],
             routeWhileDragging: false,
@@ -826,20 +1008,40 @@
             fitSelectedRoutes: true
         }).addTo(map);
 
-        // 4. Acoustic Synthesizer
+        // 4. Acoustic Synthesizer (Warning Beeps & Emergency Siren)
         var audioCtx = null;
+        var lastSirenTime = 0;
+
         function playChime(type) {
             try {
                 if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 if (audioCtx.state === 'suspended') audioCtx.resume();
 
-                var osc = audioCtx.createOscillator();
-                var gain = audioCtx.createGain();
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
                 var now = audioCtx.currentTime;
 
-                if (type === 'proximity') {
+                if (type === 'siren') {
+                    // Prevent playing siren more than once every 1.2 seconds
+                    if (Date.now() - lastSirenTime < 1200) return;
+                    lastSirenTime = Date.now();
+
+                    var osc = audioCtx.createOscillator();
+                    var gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'sawtooth';
+                    // Alternating high/low European/US ambulance wail
+                    osc.frequency.setValueAtTime(650, now);
+                    osc.frequency.linearRampToValueAtTime(950, now + 0.35);
+                    osc.frequency.linearRampToValueAtTime(650, now + 0.7);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.75);
+                    osc.start(now);
+                    osc.stop(now + 0.75);
+                } else if (type === 'proximity') {
+                    var osc = audioCtx.createOscillator();
+                    var gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
                     osc.type = 'sawtooth';
                     osc.frequency.setValueAtTime(880, now);
                     osc.frequency.setValueAtTime(1174, now + 0.12);
@@ -848,6 +1050,10 @@
                     osc.start(now);
                     osc.stop(now + 0.35);
                 } else if (type === 'resolved') {
+                    var osc = audioCtx.createOscillator();
+                    var gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
                     osc.type = 'sine';
                     osc.frequency.setValueAtTime(523.25, now);
                     osc.frequency.setValueAtTime(659.25, now + 0.1);
@@ -857,6 +1063,10 @@
                     osc.start(now);
                     osc.stop(now + 0.45);
                 } else if (type === 'click') {
+                    var osc = audioCtx.createOscillator();
+                    var gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
                     osc.type = 'triangle';
                     osc.frequency.setValueAtTime(440, now);
                     gain.gain.setValueAtTime(0.05, now);
@@ -867,7 +1077,7 @@
             } catch(e) {}
         }
 
-        // 5. Proximity Calculation & Verification Modal
+        // 5. Proximity & Hazard Verification Modal
         function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
             var R = 6371e3;
             var phi1 = lat1 * Math.PI / 180;
@@ -881,7 +1091,7 @@
 
         function checkHazardProximities(currentPos) {
             if (!currentPos) return;
-            var PROXIMITY_THRESHOLD = 45; // meters
+            var PROXIMITY_THRESHOLD = 45;
             var now = Date.now();
             var nearestHazard = null;
             var minDistance = Infinity;
@@ -955,7 +1165,7 @@
                 'speed_bump': { bg: '#f59e0b', emoji: '⚠️' },
                 'roadblock': { bg: '#f97316', emoji: '🚧' },
                 'traffic': { bg: '#a855f7', emoji: '🚗' },
-                'accident': { bg: '#dc2626', emoji: '💥' },
+                'emergency': { bg: '#dc2626', emoji: '🚨' },
                 'custom': { bg: '#06b6d4', emoji: '📍' }
             };
             var cfg = iconConfig[type] || iconConfig['custom'];
@@ -1155,7 +1365,7 @@
                     }
                     else if (msg.type === 'event_added') {
                         addOrUpdateHazardMarker(msg.data);
-                        showToast(`🚨 New Hazard: ${msg.data.title}`);
+                        showToast(`🚨 New Road Event: ${msg.data.title}`);
                     }
                     else if (msg.type === 'event_updated') {
                         addOrUpdateHazardMarker(msg.data);
@@ -1223,7 +1433,96 @@
             document.getElementById('follow-btn').style.background = '#475569';
         });
 
-        // 11. Simulator
+        // 11. EMERGENCY SIMULATION ENGINES (Behind vs Passed Demonstrations)
+        var ambulanceAnimTimer = null;
+
+        function spawnAmbulanceBehind() {
+            var myCar = (myPrimaryVehicleId && vehiclesMap[myPrimaryVehicleId]) ? vehiclesMap[myPrimaryVehicleId] : { pos: L.latLng(12.8406, 80.1534), heading: 0 };
+            
+            // Place Ambulance 90m directly BEHIND my current vehicle heading
+            var rad = (myCar.heading || 0) * Math.PI / 180;
+            var behindDist = 0.00085; // approx 90m
+            var ambLat = myCar.pos.lat - (behindDist * Math.cos(rad));
+            var ambLng = myCar.pos.lng - (behindDist * Math.sin(rad) * 1.15);
+
+            var ambData = {
+                vehicle_id: 'AMBULANCE_108',
+                vehicle_type: 'emergency',
+                is_emergency: true,
+                lat: ambLat,
+                lng: ambLng,
+                heading: myCar.heading || 0,
+                speed: 75.0,
+                sats: 12,
+                status: 'EMERGENCY_ACTIVE'
+            };
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    action: 'sim_gps',
+                    data: ambData
+                }));
+            }
+            showToast("🚨 Ambulance spawned 90m BEHIND you! (Flashing Red & Blue Strobe)");
+        }
+
+        function overtakeAndPass() {
+            var myCar = (myPrimaryVehicleId && vehiclesMap[myPrimaryVehicleId]) ? vehiclesMap[myPrimaryVehicleId] : { pos: L.latLng(12.8406, 80.1534), heading: 0 };
+            var amb = vehiclesMap['AMBULANCE_108'];
+
+            if (!amb) {
+                spawnAmbulanceBehind();
+                setTimeout(overtakeAndPass, 500);
+                return;
+            }
+
+            if (ambulanceAnimTimer) clearInterval(ambulanceAnimTimer);
+            showToast("💨 Ambulance is accelerating to OVERTAKE you!");
+
+            var step = 0;
+            var totalSteps = 25;
+            var rad = (myCar.heading || 0) * Math.PI / 180;
+
+            // Start behind (-0.0008) and finish ahead (+0.0012)
+            var startOffset = -0.0008;
+            var endOffset = +0.0012;
+
+            ambulanceAnimTimer = setInterval(function() {
+                step++;
+                var t = step / totalSteps;
+                var currentOffset = startOffset + (endOffset - startOffset) * t;
+
+                var curLat = myCar.pos.lat + (currentOffset * Math.cos(rad));
+                var curLng = myCar.pos.lng + (currentOffset * Math.sin(rad) * 1.15);
+
+                var ambData = {
+                    vehicle_id: 'AMBULANCE_108',
+                    vehicle_type: 'emergency',
+                    is_emergency: true,
+                    lat: curLat,
+                    lng: curLng,
+                    heading: myCar.heading || 0,
+                    speed: 85.0,
+                    sats: 12,
+                    status: t < 0.5 ? 'APPROACHING' : 'OVERTAKEN'
+                };
+
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        action: 'sim_gps',
+                        data: ambData
+                    }));
+                }
+
+                if (step >= totalSteps) {
+                    clearInterval(ambulanceAnimTimer);
+                    ambulanceAnimTimer = null;
+                    showToast("✅ Ambulance has passed ahead! (Notice it is now solid plain red)");
+                }
+            }, 200);
+        }
+
+        // 12. Standard Drive Simulator
         var isSimulating = false;
         var simTimer = null;
         var simAngle = 0;
@@ -1255,11 +1554,11 @@
                     var heading = ((simAngle + Math.PI/2) * 180 / Math.PI) % 360;
 
                     var simGpsData = {
-                        vehicle_id: 'SIM_TEST_CAR',
+                        vehicle_id: 'MY_CAR',
                         lat: lat,
                         lng: lng,
                         heading: heading,
-                        speed: 42.5 + Math.sin(simAngle * 3) * 5,
+                        speed: 45.0 + Math.sin(simAngle * 3) * 5,
                         sats: 11,
                         status: 'SIMULATING'
                     };
@@ -1272,28 +1571,6 @@
                     }
                 }, 250);
             }
-        }
-
-        function teleportNearHazard() {
-            var firstHazardId = Object.keys(activeHazardsMap)[0];
-            if (!firstHazardId) { showToast("No hazards on map!"); return; }
-            var h = activeHazardsMap[firstHazardId].data;
-
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    action: 'sim_gps',
-                    data: {
-                        vehicle_id: 'SIM_TEST_CAR',
-                        lat: h.lat - 0.00025,
-                        lng: h.lng,
-                        heading: 0,
-                        speed: 35.0,
-                        sats: 12,
-                        status: 'SIM_APPROACH'
-                    }
-                }));
-            }
-            showToast(`🚀 Teleported 28m before '${h.title}'!`);
         }
 
         function simulateCommunityNoVotes() {
@@ -1316,7 +1593,7 @@
             showToast(`👥 Simulating 3 users voting "No" on '${h.title}'...`);
         }
 
-        // 12. Nominatim Routing
+        // 13. Nominatim Autocomplete & Routing
         function setupAutocomplete(inputId, listId, onSelect) {
             var input = document.getElementById(inputId);
             var list = document.getElementById(listId);
@@ -1364,7 +1641,7 @@
             var status = document.getElementById('route-status');
             if (!navSource || !navDest) { status.innerText = "Select both source & destination."; return; }
             routingControl.setWaypoints([navSource, navDest]);
-            status.innerText = "Route set.";
+            status.innerText = "Route calculated.";
         }
 
         function clearRoute() {

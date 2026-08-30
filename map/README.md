@@ -1,93 +1,55 @@
-# 🚗 V2V Dynamic Navigation & Real-time Road Hazard Map
+# 🚗 V2V Dynamic Navigation, Multi-Fleet & Emergency Vehicle Map
 
-A real-time Vehicle-to-Vehicle (V2V) mapping and road safety telemetry platform designed for Linux Mint and embedded ESP32 nodes.
+A real-time Vehicle-to-Vehicle (V2V) mapping and road safety telemetry platform designed for Linux Mint, Cloud Hosting (Render), and ESP32 embedded nodes.
 
 ---
 
 ## 🌟 Key Features
 
-1. **🛰️ Real-time GPS Vehicle Tracking**:
-   - Live location coordinates streamed from ESP32 with **NEO-6M GPS** via USB Serial or WiFi HTTP POST.
-   - Smoothly animated **directional arrow icon** that rotates with vehicle heading (`0-360°`).
-   - Breadcrumb historical route trail and telemetry HUD (Speed in km/h, Compass bearing, GPS satellites lock status).
+1. **🚨 Emergency Vehicle Broadcast & Dynamic Visuals**:
+   - ESP32 nodes in emergency vehicles (Ambulance, Police, Fire) broadcast their live coordinates, speed, and heading.
+   - **Flashing RED & BLUE Strobe Lightbar**: When the emergency vehicle is **BEHIND** any normal vehicle, its red arrow icon and radar aura rapidly flash alternating Red and Blue.
+   - **Urgent HUD Alert**: Normal vehicles ahead receive an urgent siren audio chime and warning banner: *"🚨 EMERGENCY VEHICLE APPROACHING BEHIND! PLEASE YIELD"*.
+   - **Plain Solid Red Arrow**: Once the emergency vehicle **crosses and moves ahead**, the strobe stops and it transitions to a solid plain red arrow.
 
-2. **🚨 Road Hazard Reporting**:
-   - Quick one-touch reporting for:
-     - 🕳️ **Potholes & Crates**
-     - ⚠️ **Dangerous Speed Bumps**
-     - 🚧 **Roadblocks & Construction**
-     - 🚗💨 **Traffic Gridlock**
-     - 📍 **Custom Road Hazards**
+2. **🛰️ Real-time Multi-Vehicle GPS Tracking**:
+   - Ingests NEO-6M GPS coordinates from multiple ESP32s via USB Serial or HTTP POST `/gps`.
+   - Each vehicle has its own rotating directional arrow marker (`0–360°`), breadcrumb trail, and live HUD telemetry.
 
-3. **⌨️ Digital On-Screen Touchscreen Keyboard**:
-   - Integrated full-featured virtual QWERTY keyboard with numbers, symbols, shift/caps, backspace, and clear buttons.
-   - Tailored for touchscreen in-car dashboards and tablets as well as physical keyboard input.
+3. **🕳️ Road Hazard Reporting & Touchscreen Virtual Keyboard**:
+   - Report potholes, speed bumps, roadblocks, traffic, and custom hazards.
+   - Digital on-screen QWERTY virtual touch keyboard for in-car touchscreens/tablets.
 
-4. **🎯 Proximity Hazard Detection & Acoustic Chimes**:
-   - Computes distance to all active road hazards in real time (Haversine formula).
-   - Audio alert chime and HUD warning flash when approaching within **45 meters** of any hazard.
+4. **👥 3-Vote Community Consensus Verification**:
+   - Proximity detection triggers an interactive dialog: *"Is this hazard still present?"*
+   - With **3 or more "No" votes**, the hazard is automatically removed from all maps in real time.
 
-5. **👥 3-Vote Community Verification Consensus**:
-   - When within proximity of a hazard, an interactive verification dialog automatically pops up:
-     > *"Is this hazard still present on the road?"*
-     > - **"👍 Yes, Still Here"** (increases confirmation score)
-     > - **"❌ No, Resolved / Cleared"** (registers a dismissal vote)
-   - **3 "No" Votes Threshold**: When 3 or more unique users vote "No", the hazard is automatically marked as resolved and disappears from all connected maps in real time!
-
-6. **🧪 Built-in Virtual Drive Simulator**:
-   - Allows testing proximity alerts, hazard popups, and the 3-vote disappearance system indoors without requiring outdoor driving or satellite locks.
+5. **🧪 Built-in Interactive Simulator**:
+   - **"🚨 Spawn Ambulance Behind"**: Instantly places an emergency vehicle behind your car to watch the red/blue flashing strobe and hear the siren.
+   - **"💨 Ambulance Passes Ahead"**: Animates the ambulance overtaking your car so you can watch it cross ahead and turn into solid plain red.
+   - **"🚗 Start Test Drive"**: Smooth virtual loop drive past sample potholes and speed breakers.
 
 ---
 
-## 🚀 How to Run the Server
+## 🚀 Cloud Deployment (Render.com)
 
-### 1. Requirements
-Ensure `aiohttp` is installed:
-```bash
-pip3 install aiohttp
-```
-*(Optional: For direct USB Serial reading from ESP32, `pip3 install pyserial`)*
-
-### 2. Start the Server on Linux Mint
-```bash
-cd /home/anto/Desktop/V2V/map/test
-python3 server.py
-```
-
-### 3. Open the Dashboard
-Open your web browser on your laptop, tablet, or phone (connected to the same WiFi network):
-```
-http://localhost:8080/
-```
-*(Or `http://<your-linux-mint-lan-ip>:8080/` from mobile/other screens)*
+1. Push this repository to your GitHub:
+   ```bash
+   git add .
+   git commit -m "Add emergency vehicle red/blue strobe and solid red transition"
+   git push -u origin main
+   ```
+2. Go to **[dashboard.render.com](https://dashboard.render.com)** → **New Web Service** → Select your repo.
+3. Render reads [`render.yaml`](../render.yaml) and automatically deploys your live server!
 
 ---
 
-## 📡 Hardware ESP32 Connections (from `connections.md`)
+## 📡 ESP32 Emergency Vehicle Setup
 
-| Component | ESP32-S Pin | Purpose |
-| :--- | :--- | :--- |
-| **GPS NEO-6M RX** | **GPIO 16 (RX2)** | Receives NMEA stream from GPS TX |
-| **GPS NEO-6M TX** | **GPIO 17 (TX2)** | Transmits to GPS RX |
-| **GPS VCC** | **5V / VIN** | Stable 5V power supply |
-| **GPS GND** | **GND** | Common ground |
+Flash [`esp32_firmware/esp32_cloud_node/esp32_cloud_node.ino`](../esp32_firmware/esp32_cloud_node/esp32_cloud_node.ino) to the ESP32:
 
----
-
-## 🔌 API & Ingest Endpoints
-
-- **`GET /`**: Live web map dashboard.
-- **`GET /ws`**: Bidirectional WebSocket stream for telemetry, hazard reporting, and consensus voting.
-- **`POST /gps`**: Ingest GPS or IMU events from ESP32 or external scripts:
-  ```json
-  {
-    "lat": 12.8406,
-    "lng": 80.1534,
-    "speed": 45.2,
-    "heading": 180.0,
-    "sats": 9
-  }
-  ```
-- **`GET /events`**: Returns list of all active road hazards.
-- **`POST /events`**: REST API to submit a new hazard event.
-
+```cpp
+const bool  IS_EMERGENCY_VEHICLE = true; // Set true for Ambulance/Police
+const char* VEHICLE_ID           = "AMBULANCE_108";
+const char* SERVER_URL           = "https://v2v-map-platform.onrender.com/gps";
+```

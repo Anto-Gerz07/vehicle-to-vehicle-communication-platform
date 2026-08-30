@@ -1,11 +1,12 @@
 """
-V2V Dynamic Multi-Vehicle Map & Hazard Server for Linux Mint & Cloud
+V2V Dynamic Multi-Vehicle Map & Emergency Vehicle Broadcaster Server
 --------------------------------------------------------------------
-- Supports multiple ESP32 nodes posting GPS/IMU data with unique vehicle_id
-- Web clients connect over WebSocket (/ws) to view live fleet & road hazards
-- Ingests GPS over USB Serial or HTTP POST to /gps
+- Supports regular vehicles and emergency vehicles (Ambulance, Police, Fire)
+- Broadcasts live GPS coordinates, heading, speed, and emergency status
+- Emergency vehicles render with special red/blue strobe when behind normal vehicles,
+  and plain solid red arrow once they cross ahead
 - Synchronizes hazards with 3-vote community consensus removal
-- Ready for free cloud deployment (Render, Railway, Fly.io, Cloudflare Tunnels)
+- Works on Linux Mint and Cloud (Render, Railway, Cloudflare)
 """
 
 import os
@@ -33,6 +34,8 @@ EVENTS_FILE = os.path.join(BASE_DIR, "events.json")
 active_vehicles: Dict[str, Dict[str, Any]] = {
     "MY_CAR": {
         "vehicle_id": "MY_CAR",
+        "vehicle_type": "normal",
+        "is_emergency": False,
         "lat": 12.8406,
         "lng": 80.1534,
         "heading": 0.0,
@@ -90,20 +93,6 @@ def load_events():
                 "created_at": time.time(),
                 "created_by": "System",
                 "confirmations": ["user_seed_2"],
-                "dismissals": [],
-                "active": True
-            },
-            {
-                "id": "haz-roadblock-1",
-                "type": "roadblock",
-                "title": "Pipeline Construction",
-                "description": "Left lane blocked with barricades",
-                "lat": 12.8440,
-                "lng": 80.1568,
-                "severity": "high",
-                "created_at": time.time(),
-                "created_by": "System",
-                "confirmations": ["user_seed_3"],
                 "dismissals": [],
                 "active": True
             }
@@ -184,6 +173,8 @@ class SerialGPSListener(threading.Thread):
 
                             veh_data = {
                                 "vehicle_id": "USB_ESP32",
+                                "vehicle_type": "normal",
+                                "is_emergency": False,
                                 "lat": lat,
                                 "lng": lng,
                                 "speed": speed,
@@ -211,13 +202,15 @@ async def handle_gps_post(request):
     """
     Any ESP32 module or client posts JSON here:
     {
-      "vehicle_id": "CAR_ALPHA",
+      "vehicle_id": "AMBULANCE_01",
+      "vehicle_type": "emergency",
+      "is_emergency": true,
       "lat": 12.8406,
       "lng": 80.1534,
-      "speed": 45.0,
+      "speed": 65.0,
       "heading": 180.0,
       "sats": 8,
-      "event": 0
+      "event": 8
     }
     """
     try:
@@ -232,7 +225,21 @@ async def handle_gps_post(request):
     lng = float(data["lng"])
     vehicle_id = str(data.get("vehicle_id", "ESP32_NODE")).strip() or "ESP32_NODE"
 
-    # If ESP32 detected a hazard event (pothole from IMU, emergency button, etc.)
+    # Determine if this node is an Emergency Vehicle
+    v_type = str(data.get("vehicle_type", "normal")).lower()
+    is_emerg = (
+        bool(data.get("is_emergency", False)) or 
+        v_type == "emergency" or
+        "AMBULANCE" in vehicle_id.upper() or
+        "EMERGENCY" in vehicle_id.upper() or
+        "POLICE" in vehicle_id.upper() or
+        "FIRE" in vehicle_id.upper() or
+        data.get("event") == 8
+    )
+    if is_emerg:
+        v_type = "emergency"
+
+    # If ESP32 detected a hazard event (pothole from IMU, emergency siren button, etc.)
     if "event" in data and int(data["event"]) > 0:
         event_num = int(data["event"])
         type_mapping = {
@@ -240,7 +247,7 @@ async def handle_gps_post(request):
             2: ("traction_loss", "Slippery Road / Loss of Traction"),
             4: ("crash", "Major Crash Incident"),
             5: ("pothole", "Pothole Detected (IMU)"),
-            8: ("emergency", "Emergency Vehicle Approaching"),
+            8: ("emergency", f"🚨 Emergency Vehicle ({vehicle_id}) Approaching!"),
             9: ("hard_brake", "Sudden Hard Braking Ahead")
         }
         ev_type, ev_title = type_mapping.get(event_num, ("custom", f"Hazard #{event_num}"))
@@ -248,7 +255,7 @@ async def handle_gps_post(request):
             "id": f"haz-{vehicle_id}-{int(time.time() * 1000)}",
             "type": ev_type,
             "title": ev_title,
-            "description": f"Reported by {vehicle_id} at {time.strftime('%H:%M:%S')}",
+            "description": f"Broadcasted by {vehicle_id} at {time.strftime('%H:%M:%S')}",
             "lat": lat,
             "lng": lng,
             "severity": "critical" if event_num in [4, 8] else "high",
@@ -262,11 +269,13 @@ async def handle_gps_post(request):
         save_events()
         print(f"[EVENT FROM {vehicle_id}] {new_event['title']} at ({lat:.5f}, {lng:.5f})")
         await broadcast({"type": "event_added", "data": new_event})
-        return web.json_response({"status": "event_recorded", "event": new_event, "active_hazards_count": len(active_events)})
+        return web.json_response({"status": "event_recorded", "event": new_event})
 
     # Standard Multi-Vehicle GPS update
     veh_data = {
         "vehicle_id": vehicle_id,
+        "vehicle_type": v_type,
+        "is_emergency": is_emerg,
         "lat": lat,
         "lng": lng,
         "heading": float(data.get("heading", 0.0)),
@@ -280,10 +289,10 @@ async def handle_gps_post(request):
 
     await broadcast({"type": "gps_update", "vehicle_id": vehicle_id, "data": veh_data})
     
-    # Return active hazards count so ESP32 knows if there are nearby warnings
     return web.json_response({
         "status": "ok",
         "vehicle_id": vehicle_id,
+        "is_emergency": is_emerg,
         "active_hazards": len(active_events),
         "total_online_vehicles": len(active_vehicles)
     })
@@ -338,7 +347,6 @@ async def handle_ws(request):
     ws = web.WebSocketResponse(heartbeat=30)
     await ws.prepare(request)
     websocket_clients.add(ws)
-    print(f"[WS] Client connected. Active clients: {len(websocket_clients)}")
 
     # Send initial state immediately: all vehicles + all active hazards
     initial_payload = {
@@ -418,12 +426,15 @@ async def handle_ws(request):
                                     save_events()
                                     await broadcast({"type": "event_updated", "data": ev})
 
-                    # 3. Simulated GPS Update
+                    # 3. Simulated GPS Update (Supports normal and emergency vehicles)
                     elif action == "sim_gps":
                         data = payload.get("data", {})
                         veh_id = data.get("vehicle_id", "SIM_CAR")
+                        is_emerg = bool(data.get("is_emergency", False)) or "AMBULANCE" in veh_id.upper() or "EMERGENCY" in veh_id.upper()
                         veh_data = {
                             "vehicle_id": veh_id,
+                            "vehicle_type": "emergency" if is_emerg else "normal",
+                            "is_emergency": is_emerg,
                             "lat": float(data["lat"]),
                             "lng": float(data["lng"]),
                             "heading": float(data.get("heading", 0.0)),
@@ -443,7 +454,6 @@ async def handle_ws(request):
                 print(f"[WS] Connection error: {ws.exception()}")
     finally:
         websocket_clients.discard(ws)
-        print(f"[WS] Client disconnected. Active: {len(websocket_clients)}")
 
     return ws
 
@@ -468,7 +478,7 @@ def create_app():
 if __name__ == "__main__":
     load_events()
 
-    # Start USB Serial Background Thread if hardware connected
+    # Start USB Serial Background Thread
     serial_listener = SerialGPSListener()
     serial_listener.start()
 
@@ -479,7 +489,7 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 8080))
     print("=" * 65)
-    print(f"  🚀 V2V Dynamic Multi-Vehicle Map Server running on port {port}")
+    print(f"  🚨 V2V Emergency Vehicle & Multi-Fleet Map Server on port {port}")
     print(f"  📡 Map Dashboard:  http://0.0.0.0:{port}/")
     print(f"  📍 GPS Ingest:     http://0.0.0.0:{port}/gps (HTTP POST)")
     print(f"  🔌 WebSocket:      ws://0.0.0.0:{port}/ws")
