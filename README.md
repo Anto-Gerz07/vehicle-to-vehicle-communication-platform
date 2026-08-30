@@ -22,8 +22,8 @@ We developed a complete ecosystem including:
 ### 1. Software Environment Setup
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/shaik-hasan-AS/V2V.git
-   cd V2V
+   git clone https://github.com/Anto-Gerz07/vehicle-to-vehicle-communication-platform.git
+   cd vehicle-to-vehicle-communication-platform
    ```
 2. **Install Python dependencies**:
    Ensure you have Python 3.8+ installed. It is recommended to use a virtual environment.
