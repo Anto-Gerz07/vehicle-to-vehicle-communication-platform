@@ -6,8 +6,11 @@ __pycache__/
 env/
 venv/
 .venv/
+.mapTest/
+.*venv*/
 .env
 v2v-web-simulator/dist/
 v2v-web-simulator/node_modules/
 .DS_Store
 blackbox_logs/
+*.log

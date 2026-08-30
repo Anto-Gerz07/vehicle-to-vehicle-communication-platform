@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: v2v-map-platform
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: python3 map/test/server.py
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 10000
+

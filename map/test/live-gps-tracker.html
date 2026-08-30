@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Live GPS Tracker & Navigation</title>
+    <meta charset="UTF-8">
+    <title>V2V Dynamic Navigation & Multi-Vehicle Map</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 
     <!-- Leaflet Core CSS & JS -->
@@ -12,130 +13,811 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
     <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
 
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
     <style>
-        body { padding: 0; margin: 0; font-family: Arial, sans-serif; }
-        #map { height: 100vh; width: 100vw; }
-
-        #status {
-            position: absolute; top: 10px; left: 50px; z-index: 1000;
-            background: white; padding: 10px 12px; border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-weight: bold; font-size: 13px;
+        :root {
+            --bg-dark: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.88);
+            --card-border: rgba(255, 255, 255, 0.12);
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --accent-pothole: #ef4444;
+            --accent-bump: #f59e0b;
+            --accent-roadblock: #f97316;
+            --accent-traffic: #a855f7;
+            --accent-custom: #06b6d4;
+            --success: #10b981;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
         }
-        #status .sub { font-weight: normal; color: #555; font-size: 11px; margin-top: 2px; }
 
+        * { box-sizing: border-box; }
+        body {
+            padding: 0; margin: 0;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-main);
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+
+        /* Glassmorphism Panel */
+        .glass-panel {
+            background: var(--card-bg);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+            color: var(--text-main);
+        }
+
+        /* Top HUD Telemetry Bar */
+        #top-hud {
+            position: absolute;
+            top: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 10px 22px;
+            max-width: 95vw;
+        }
+
+        .hud-stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 65px;
+        }
+        .hud-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .hud-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 17px;
+            font-weight: 700;
+            color: #fff;
+        }
+        .hud-divider {
+            width: 1px;
+            height: 28px;
+            background: rgba(255,255,255,0.15);
+        }
+
+        .badge-locked {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            border: 1px solid #10b981;
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 20px;
+            font-weight: 700;
+        }
+        .badge-waiting {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+            border: 1px solid #f59e0b;
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 20px;
+            font-weight: 700;
+        }
+
+        /* Top Left Navigation Panel */
         #nav-panel {
-            position: absolute; top: 75px; left: 50px; z-index: 1000;
-            background: white; padding: 15px; border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3); max-width: 280px;
+            position: absolute;
+            top: 14px;
+            left: 14px;
+            z-index: 1000;
+            padding: 14px 18px;
+            width: 290px;
+            transition: all 0.3s ease;
         }
-        #nav-panel h3 { margin-top: 0; margin-bottom: 10px; }
-        #nav-panel label {
-            display: block; font-size: 12px; font-weight: bold;
-            color: #333; margin-bottom: 3px; margin-top: 8px;
+        #nav-panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
-        #nav-panel input[type="text"] {
-            width: 100%; box-sizing: border-box; padding: 6px 8px;
-            border: 1px solid #ccc; border-radius: 4px; font-size: 14px;
+        .nav-input-group {
+            margin-bottom: 8px;
+            position: relative;
         }
-        #use-live-btn {
-            background: none; border: none; color: #007bff; font-size: 11px;
-            padding: 0; margin-top: 2px; width: auto; cursor: pointer; text-decoration: underline;
+        .nav-input-group label {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-bottom: 3px;
         }
-        #route-btn { margin-top: 12px; background: #28a745; }
-        #route-status { font-size: 12px; margin-top: 6px; min-height: 16px; color: #555; }
-        button {
-            padding: 8px 12px; background: #dc3545; color: white;
-            border: none; border-radius: 4px; cursor: pointer; width: 100%;
+        .nav-input-group input {
+            width: 100%;
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid var(--card-border);
+            color: white;
+            padding: 7px 10px;
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
         }
-
-        #follow-btn {
-            position: absolute; bottom: 20px; right: 10px; z-index: 1000;
-            width: auto; padding: 10px 14px; background: #007bff; border-radius: 20px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-        }
-        #follow-btn.off { background: #888; }
-
+        .nav-input-group input:focus { border-color: var(--primary); }
         .autocomplete-list {
-            position: absolute; background: white; border: 1px solid #ccc;
-            border-top: none; max-height: 150px; overflow-y: auto;
-            width: 100%; z-index: 2000; font-size: 13px;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #1e293b;
+            border: 1px solid var(--card-border);
+            border-radius: 8px;
+            max-height: 140px;
+            overflow-y: auto;
+            z-index: 2500;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+            display: none;
         }
-        .autocomplete-list div { padding: 6px 8px; cursor: pointer; border-bottom: 1px solid #eee; }
-        .autocomplete-list div:hover { background: #f0f0f0; }
+        .autocomplete-list div {
+            padding: 7px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .autocomplete-list div:hover { background: #334155; }
 
-        /* Rotating arrow marker for the live tracker */
-        .car-icon {
-            width: 28px; height: 28px;
+        .btn-sm {
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-secondary { background: rgba(255,255,255,0.1); color: white; }
+        .btn-secondary:hover { background: rgba(255,255,255,0.2); }
+        .btn-danger { background: #dc2626; color: white; }
+
+        /* Floating Hazard Action Bar (Bottom Center) */
+        #hazard-bar {
+            position: absolute;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 14px;
+        }
+        .hazard-btn {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 10px 15px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            border: none;
+            color: white;
+            transition: transform 0.15s ease, filter 0.15s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .hazard-btn:hover {
+            transform: translateY(-2px);
+            filter: brightness(1.15);
+        }
+        .hazard-btn:active { transform: scale(0.96); }
+        .btn-pothole { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+        .btn-bump { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .btn-roadblock { background: linear-gradient(135deg, #f97316, #c2410c); }
+        .btn-traffic { background: linear-gradient(135deg, #a855f7, #7e22ce); }
+        .btn-custom { background: linear-gradient(135deg, #06b6d4, #0e7490); }
+
+        /* Floating Utility Controls (Right Side) */
+        #right-controls {
+            position: absolute;
+            bottom: 24px;
+            right: 18px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .ctrl-btn {
+            padding: 11px 16px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid var(--card-border);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            color: white;
+        }
+
+        /* Proximity Alert Banner */
+        #proximity-banner {
+            position: absolute;
+            top: 75px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1500;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            background: linear-gradient(135deg, #dc2626, #991b1b);
+            border: 2px solid #fecaca;
+            padding: 12px 24px;
+            border-radius: 30px;
+            box-shadow: 0 0 25px rgba(220, 38, 38, 0.7);
+            animation: pulseAlert 1.2s infinite alternate;
+        }
+        @keyframes pulseAlert {
+            0% { transform: translateX(-50%) scale(1); }
+            100% { transform: translateX(-50%) scale(1.04); }
+        }
+
+        /* Modal Overlays */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+            z-index: 3000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .modal-window {
+            width: 580px;
+            max-width: 95vw;
+            padding: 24px;
+            border-radius: 20px;
+            position: relative;
+            animation: modalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes modalPop {
+            0% { transform: scale(0.92); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Virtual Digital Keyboard */
+        .vk-container {
+            margin-top: 14px;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 14px;
+            padding: 10px;
+        }
+        .vk-row {
+            display: flex;
+            justify-content: center;
+            gap: 5px;
+            margin-bottom: 5px;
+        }
+        .vk-key {
+            flex: 1;
+            min-width: 32px;
+            height: 42px;
+            background: #1e293b;
+            color: #f8fafc;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 7px;
+            font-size: 15px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.1s, transform 0.05s;
+        }
+        .vk-key:hover { background: #334155; }
+        .vk-key:active, .vk-key.active-key {
+            background: var(--primary);
+            transform: scale(0.95);
+        }
+        .vk-key-wide { flex: 1.6; font-size: 13px; }
+        .vk-key-space { flex: 4; }
+
+        /* Vehicle Arrow Marker Styling */
+        .car-marker-container {
+            position: relative;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .car-pulse {
+            position: absolute;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(59, 130, 246, 0.35);
+            animation: radarPulse 2s infinite;
+        }
+        @keyframes radarPulse {
+            0% { transform: scale(0.7); opacity: 1; }
+            100% { transform: scale(2.2); opacity: 0; }
+        }
+        .car-arrow {
+            width: 30px;
+            height: 30px;
             transform-origin: 50% 50%;
-            transition: transform 0.3s linear;
+            transition: transform 0.25s ease-out;
+            filter: drop-shadow(0 2px 5px rgba(0,0,0,0.6));
+        }
+        .car-tag {
+            position: absolute;
+            top: -18px;
+            background: rgba(15,23,42,0.9);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #60a5fa;
+            font-size: 10px;
+            font-weight: 800;
+            padding: 1px 6px;
+            border-radius: 8px;
+            white-space: nowrap;
+        }
+
+        /* Hazard Marker Styles */
+        .hazard-pin {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            border: 2px solid white;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.6);
+            transition: transform 0.2s ease;
+        }
+        .hazard-pin:hover { transform: scale(1.25); }
+
+        /* Simulation Drawer */
+        #sim-drawer {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            z-index: 1000;
+            padding: 12px 16px;
+            max-width: 260px;
+        }
+
+        /* Toast Notification */
+        #toast {
+            position: fixed;
+            bottom: 85px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            color: white;
+            border: 1px solid var(--primary);
+            padding: 10px 20px;
+            border-radius: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+            font-size: 13px;
+            font-weight: 600;
+            z-index: 4000;
+            display: none;
         }
     </style>
 </head>
 <body>
 
-    <div id="status">
-        Connecting to server...
-        <div class="sub" id="status-sub"></div>
+    <!-- Real-time Top HUD Bar -->
+    <div id="top-hud" class="glass-panel">
+        <div class="hud-stat">
+            <span class="hud-label">Speed</span>
+            <span class="hud-value" id="hud-speed">0.0 <small style="font-size:11px;font-weight:normal;">km/h</small></span>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-stat">
+            <span class="hud-label">Heading</span>
+            <span class="hud-value" id="hud-heading">000° N</span>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-stat">
+            <span class="hud-label">GPS Status</span>
+            <span id="hud-gps-badge" class="badge-waiting">CONNECTING</span>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-stat">
+            <span class="hud-label">Vehicles Online</span>
+            <span class="hud-value" id="hud-vehicles-count" style="color:#60a5fa;">1</span>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-stat">
+            <span class="hud-label">Hazards</span>
+            <span class="hud-value" id="hud-hazards-count" style="color:var(--accent-bump);">0</span>
+        </div>
     </div>
 
-    <div id="nav-panel">
-        <h3>Navigation</h3>
+    <!-- Navigation & Route Drawer -->
+    <div id="nav-panel" class="glass-panel">
+        <h3>
+            <span>🧭 Navigation</span>
+            <button id="toggle-nav-btn" class="btn-sm btn-secondary" onclick="toggleNavPanel()">−</button>
+        </h3>
+        <div id="nav-content">
+            <div class="nav-input-group">
+                <label>Starting Point</label>
+                <input type="text" id="source-input" placeholder="Enter starting point..." autocomplete="off" />
+                <div id="source-list" class="autocomplete-list"></div>
+            </div>
+            <button class="btn-sm btn-secondary" style="width:100%;margin-bottom:8px;font-size:11px;" onclick="useLiveAsSource()">
+                📍 Set Current GPS as Start
+            </button>
 
-        <label for="source-input">Source</label>
-        <div style="position: relative;">
-            <input type="text" id="source-input" placeholder="Enter starting point" autocomplete="off" />
-            <div id="source-list" class="autocomplete-list" style="display:none;"></div>
+            <div class="nav-input-group">
+                <label>Destination</label>
+                <input type="text" id="dest-input" placeholder="Enter destination..." autocomplete="off" />
+                <div id="dest-list" class="autocomplete-list"></div>
+            </div>
+
+            <div style="display:flex; gap:6px; margin-top:10px;">
+                <button class="btn-sm btn-primary" style="flex:2;" onclick="calculateRoute()">Get Route</button>
+                <button class="btn-sm btn-danger" style="flex:1;" onclick="clearRoute()">Clear</button>
+            </div>
+            <div id="route-status" style="font-size:11px; color:var(--text-muted); margin-top:6px;"></div>
         </div>
-        <button id="use-live-btn" onclick="useLiveLocationAsSource()">Use my live location</button>
-
-        <label for="dest-input">Destination</label>
-        <div style="position: relative;">
-            <input type="text" id="dest-input" placeholder="Enter destination" autocomplete="off" />
-            <div id="dest-list" class="autocomplete-list" style="display:none;"></div>
-        </div>
-
-        <button id="route-btn" onclick="routeFromInputs()">Get Route</button>
-        <div id="route-status"></div>
-
-        <p style="font-size: 12px; color: #777; margin-bottom: 4px;">Or tap the map to route from your live location.</p>
-        <button onclick="clearRoute()">Clear Route</button>
     </div>
 
-    <button id="follow-btn" onclick="toggleFollow()">📍 Following</button>
+    <!-- Proximity Alert Banner -->
+    <div id="proximity-banner">
+        <span style="font-size:22px;">⚠️</span>
+        <div>
+            <div id="prox-title" style="font-weight:800; font-size:14px; color:#fff;">HAZARD AHEAD!</div>
+            <div id="prox-desc" style="font-size:12px; color:#fecaca;">Pothole detected 35 meters away.</div>
+        </div>
+    </div>
 
+    <!-- Quick Hazard Reporting Toolbar -->
+    <div id="hazard-bar" class="glass-panel">
+        <button class="hazard-btn btn-pothole" onclick="quickReport('pothole')">
+            <span>🕳️</span> Pothole
+        </button>
+        <button class="hazard-btn btn-bump" onclick="quickReport('speed_bump')">
+            <span>⚠️</span> Speed Bump
+        </button>
+        <button class="hazard-btn btn-roadblock" onclick="quickReport('roadblock')">
+            <span>🚧</span> Roadblock
+        </button>
+        <button class="hazard-btn btn-traffic" onclick="quickReport('traffic')">
+            <span>🚗</span> Traffic Jam
+        </button>
+        <button class="hazard-btn btn-custom" onclick="openCustomHazardModal()">
+            <span>➕</span> Custom...
+        </button>
+    </div>
+
+    <!-- Right-side View Controls -->
+    <div id="right-controls">
+        <button id="follow-btn" class="glass-panel ctrl-btn" style="background:#2563eb;" onclick="toggleFollow()">
+            📍 Following
+        </button>
+        <button class="glass-panel ctrl-btn btn-secondary" onclick="centerVehicle()">
+            🎯 Center
+        </button>
+    </div>
+
+    <!-- Built-in Simulation Panel (For testing indoors without moving outside) -->
+    <div id="sim-drawer" class="glass-panel">
+        <div style="font-size:12px; font-weight:700; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+            <span>🧪 Virtual Test Drive</span>
+            <span id="sim-indicator" style="font-size:10px; color:#10b981;">READY</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+            <button id="sim-drive-btn" class="btn-sm btn-primary" onclick="toggleSimulatedDrive()">
+                🚗 Start Test Drive
+            </button>
+            <button class="btn-sm btn-secondary" onclick="teleportNearHazard()">
+                ⚡ Approach Nearest Hazard
+            </button>
+            <button class="btn-sm btn-secondary" style="font-size:11px;" onclick="simulateCommunityNoVotes()">
+                👥 Mock 3 "NO" Votes
+            </button>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast"></div>
+
+    <!-- Modal 1: Custom Event Creation Dialog with Digital Virtual Keyboard -->
+    <div id="custom-modal" class="modal-overlay">
+        <div class="modal-window glass-panel">
+            <h2 style="margin:0 0 14px 0; font-size:18px; display:flex; align-items:center; justify-content:space-between;">
+                <span>🚨 Report Road Hazard / Custom Event</span>
+                <span style="cursor:pointer; font-size:20px;" onclick="closeModal('custom-modal')">&times;</span>
+            </h2>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
+                <div>
+                    <label style="font-size:11px; font-weight:600; color:var(--text-muted);">Hazard Type</label>
+                    <select id="modal-type" style="width:100%; background:#0f172a; border:1px solid var(--card-border); color:white; padding:8px; border-radius:8px; font-size:13px;">
+                        <option value="pothole">🕳️ Pothole / Crater</option>
+                        <option value="speed_bump">⚠️ Dangerous Speed Bump</option>
+                        <option value="roadblock">🚧 Roadblock / Construction</option>
+                        <option value="traffic">🚗💨 Traffic Gridlock</option>
+                        <option value="oil_spill">🛢️ Oil Spill / Slippery</option>
+                        <option value="flooding">🌊 Waterlogged / Flooded</option>
+                        <option value="accident">💥 Vehicle Collision</option>
+                        <option value="custom" selected>📍 Custom Hazard Event</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:11px; font-weight:600; color:var(--text-muted);">Severity</label>
+                    <select id="modal-severity" style="width:100%; background:#0f172a; border:1px solid var(--card-border); color:white; padding:8px; border-radius:8px; font-size:13px;">
+                        <option value="low">Low (Caution)</option>
+                        <option value="medium" selected>Medium (Moderate Risk)</option>
+                        <option value="high">High (Dangerous)</option>
+                        <option value="critical">Critical (Immediate Stop)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="margin-bottom:10px;">
+                <label style="font-size:11px; font-weight:600; color:var(--text-muted);">Event Title / Label</label>
+                <input type="text" id="modal-title" placeholder="e.g., Deep Pothole after junction" 
+                       style="width:100%; background:#0f172a; border:1px solid var(--card-border); color:white; padding:8px 12px; border-radius:8px; font-size:14px; font-weight:600;" />
+            </div>
+
+            <div style="margin-bottom:10px;">
+                <label style="font-size:11px; font-weight:600; color:var(--text-muted);">Detailed Description / Notes</label>
+                <input type="text" id="modal-desc" placeholder="e.g., Right lane broken, drive slowly" 
+                       style="width:100%; background:#0f172a; border:1px solid var(--card-border); color:white; padding:8px 12px; border-radius:8px; font-size:13px;" />
+            </div>
+
+            <!-- Embedded Digital Virtual Keyboard for Touchscreens -->
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+                <span style="font-size:11px; font-weight:700; color:var(--primary);">⌨️ Touchscreen Virtual Keyboard</span>
+                <span style="font-size:10px; color:var(--text-muted);">Tap keys or type on physical keyboard</span>
+            </div>
+            <div class="vk-container" id="vk-board">
+                <!-- Row 1: Numbers -->
+                <div class="vk-row">
+                    <div class="vk-key" onclick="vkType('1')">1</div>
+                    <div class="vk-key" onclick="vkType('2')">2</div>
+                    <div class="vk-key" onclick="vkType('3')">3</div>
+                    <div class="vk-key" onclick="vkType('4')">4</div>
+                    <div class="vk-key" onclick="vkType('5')">5</div>
+                    <div class="vk-key" onclick="vkType('6')">6</div>
+                    <div class="vk-key" onclick="vkType('7')">7</div>
+                    <div class="vk-key" onclick="vkType('8')">8</div>
+                    <div class="vk-key" onclick="vkType('9')">9</div>
+                    <div class="vk-key" onclick="vkType('0')">0</div>
+                    <div class="vk-key" onclick="vkType('-')">-</div>
+                </div>
+                <!-- Row 2: QWERTY -->
+                <div class="vk-row">
+                    <div class="vk-key" onclick="vkType('Q')">Q</div>
+                    <div class="vk-key" onclick="vkType('W')">W</div>
+                    <div class="vk-key" onclick="vkType('E')">E</div>
+                    <div class="vk-key" onclick="vkType('R')">R</div>
+                    <div class="vk-key" onclick="vkType('T')">T</div>
+                    <div class="vk-key" onclick="vkType('Y')">Y</div>
+                    <div class="vk-key" onclick="vkType('U')">U</div>
+                    <div class="vk-key" onclick="vkType('I')">I</div>
+                    <div class="vk-key" onclick="vkType('O')">O</div>
+                    <div class="vk-key" onclick="vkType('P')">P</div>
+                </div>
+                <!-- Row 3: ASDFGHJKL -->
+                <div class="vk-row">
+                    <div class="vk-key" onclick="vkType('A')">A</div>
+                    <div class="vk-key" onclick="vkType('S')">S</div>
+                    <div class="vk-key" onclick="vkType('D')">D</div>
+                    <div class="vk-key" onclick="vkType('F')">F</div>
+                    <div class="vk-key" onclick="vkType('G')">G</div>
+                    <div class="vk-key" onclick="vkType('H')">H</div>
+                    <div class="vk-key" onclick="vkType('J')">J</div>
+                    <div class="vk-key" onclick="vkType('K')">K</div>
+                    <div class="vk-key" onclick="vkType('L')">L</div>
+                </div>
+                <!-- Row 4: Shift, ZXCVBNM, Backspace -->
+                <div class="vk-row">
+                    <div class="vk-key vk-key-wide" id="vk-shift" onclick="vkToggleShift()">⇧ Shift</div>
+                    <div class="vk-key" onclick="vkType('Z')">Z</div>
+                    <div class="vk-key" onclick="vkType('X')">X</div>
+                    <div class="vk-key" onclick="vkType('C')">C</div>
+                    <div class="vk-key" onclick="vkType('V')">V</div>
+                    <div class="vk-key" onclick="vkType('B')">B</div>
+                    <div class="vk-key" onclick="vkType('N')">N</div>
+                    <div class="vk-key" onclick="vkType('M')">M</div>
+                    <div class="vk-key vk-key-wide" style="background:#475569;" onclick="vkBackspace()">⌫ Back</div>
+                </div>
+                <!-- Row 5: Space & Controls -->
+                <div class="vk-row">
+                    <div class="vk-key vk-key-wide" style="background:#334155;" onclick="vkClear()">Clear</div>
+                    <div class="vk-key vk-key-space" onclick="vkType(' ')">SPACE</div>
+                    <div class="vk-key vk-key-wide" onclick="vkType('.')">.</div>
+                    <div class="vk-key vk-key-wide" onclick="vkType('/')">/</div>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
+                <button class="btn-sm btn-secondary" style="padding:10px 18px;" onclick="closeModal('custom-modal')">Cancel</button>
+                <button class="btn-sm btn-primary" style="padding:10px 22px; font-weight:700;" onclick="submitCustomHazard()">
+                    🚀 Broadcast Hazard
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 2: Proximity Community Verification Dialog ("Is this still there?") -->
+    <div id="verify-modal" class="modal-overlay">
+        <div class="modal-window glass-panel" style="width:480px; text-align:center;">
+            <div style="font-size:42px; margin-bottom:8px;" id="verify-icon">⚠️</div>
+            <h2 style="margin:0 0 6px 0; font-size:20px; font-weight:800; color:#fff;" id="verify-title">
+                Hazard Proximity Alert
+            </h2>
+            <p style="font-size:13px; color:var(--text-muted); margin:0 0 16px 0;" id="verify-subtitle">
+                You have reached a reported road hazard.
+            </p>
+
+            <div style="background:rgba(15,23,42,0.8); border:1px solid var(--card-border); border-radius:12px; padding:14px; margin-bottom:18px; text-align:left;">
+                <div style="font-size:13px; font-weight:700; color:#fff;" id="verify-details">Pothole on Main Road</div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:4px;" id="verify-meta">Reported 5 mins ago</div>
+                <div style="display:flex; gap:12px; margin-top:10px; font-size:12px; font-weight:700;">
+                    <span style="color:#10b981;" id="verify-yes-count">👍 1 Confirmed</span>
+                    <span style="color:#ef4444;" id="verify-no-count">❌ 0 / 3 Dismissals</span>
+                </div>
+            </div>
+
+            <h3 style="font-size:16px; font-weight:700; margin-bottom:14px;">
+                Is this hazard still present on the road?
+            </h3>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+                <button class="hazard-btn btn-pothole" style="justify-content:center; padding:14px; font-size:14px; background:#10b981;" onclick="submitVerificationVote('yes')">
+                    👍 Yes, Still Here
+                </button>
+                <button class="hazard-btn btn-pothole" style="justify-content:center; padding:14px; font-size:14px; background:#ef4444;" onclick="submitVerificationVote('no')">
+                    ❌ No, Cleared
+                </button>
+            </div>
+
+            <p style="font-size:11px; color:var(--text-muted); margin-top:12px;">
+                *With 3 or more community "No" votes, this hazard will automatically disappear from the map.
+            </p>
+        </div>
+    </div>
+
+    <!-- Main Map & Multi-Vehicle V2V Logic -->
     <div id="map"></div>
 
     <script>
+        // Generate or retrieve persistent User/Client ID
+        var myUserId = localStorage.getItem('v2v_user_id');
+        if (!myUserId) {
+            myUserId = 'esp32_' + Math.random().toString(36).substring(2, 8);
+            localStorage.setItem('v2v_user_id', myUserId);
+        }
+
         // 1. Initialize Map
-        var map = L.map('map').setView([12.8406, 80.1534], 16);
+        var defaultCoords = [12.8406, 80.1534];
+        var map = L.map('map', {
+            zoomControl: false,
+            attributionControl: true
+        }).setView(defaultCoords, 16);
+
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
-            attribution: '&copy; OpenStreetMap'
+            attribution: '&copy; OpenStreetMap contributors | V2V Multi-Vehicle Cloud'
         }).addTo(map);
 
-        // ---- Rotating car/arrow marker ----
-        var carIcon = L.divIcon({
-            className: '',
-            html: '<svg class="car-icon" id="car-svg" viewBox="0 0 24 24">' +
-                  '<path d="M12 2 L19 21 L12 17 L5 21 Z" fill="#007bff" stroke="white" stroke-width="1.5"/></svg>',
-            iconSize: [28, 28],
-            iconAnchor: [14, 14]
-        });
-        var trackerMarker = L.marker([12.8406, 80.1534], { icon: carIcon }).addTo(map);
+        // Vehicle Colors for Multi-Vehicle fleets
+        var vehicleColors = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
+        function getVehicleColor(vId) {
+            var hash = 0;
+            for (var i = 0; i < vId.length; i++) hash = vId.charCodeAt(i) + ((hash << 5) - hash);
+            return vehicleColors[Math.abs(hash) % vehicleColors.length];
+        }
 
-        // Breadcrumb trail of where the tracker has actually been
-        var trail = L.polyline([], { color: '#007bff', weight: 3, opacity: 0.6 }).addTo(map);
-        var MAX_TRAIL_POINTS = 1000;
-
-        var latestCarLatLng = null;   // raw last confirmed GPS fix (used for routing)
-        var displayLatLng = null;     // currently animated/displayed position
+        // Multi-Vehicle Tracker Map: vehicle_id -> { marker, trail, latLng, heading, speed }
+        var vehiclesMap = {};
+        var myPrimaryVehicleId = null;
         var isFollowing = true;
-        var animFrame = null;
 
-        // 2. Routing control
-        var sourceLatLng = null;
-        var destLatLng = null;
+        function createOrUpdateVehicle(vData) {
+            var vId = vData.vehicle_id || 'UNKNOWN';
+            if (!myPrimaryVehicleId) myPrimaryVehicleId = vId;
 
+            var lat = parseFloat(vData.lat);
+            var lng = parseFloat(vData.lng);
+            var pos = L.latLng(lat, lng);
+            var color = getVehicleColor(vId);
+
+            if (!vehiclesMap[vId]) {
+                var iconHtml = `
+                    <div class="car-marker-container">
+                        <div class="car-pulse" style="background:${color}55;"></div>
+                        <div class="car-tag" style="color:${color};">${vId}</div>
+                        <svg class="car-arrow" id="arrow-${vId}" viewBox="0 0 32 32">
+                            <path d="M16 2 L28 28 L16 22 L4 28 Z" fill="${color}" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                `;
+                var vIcon = L.divIcon({
+                    className: '',
+                    html: iconHtml,
+                    iconSize: [36, 36],
+                    iconAnchor: [18, 18]
+                });
+
+                var marker = L.marker(pos, { icon: vIcon, zIndexOffset: 1000 }).addTo(map);
+                var trail = L.polyline([pos], { color: color, weight: 3.5, opacity: 0.7 }).addTo(map);
+
+                vehiclesMap[vId] = {
+                    marker: marker,
+                    trail: trail,
+                    pos: pos,
+                    heading: vData.heading || 0
+                };
+            }
+
+            var entry = vehiclesMap[vId];
+            entry.pos = pos;
+            entry.marker.setLatLng(pos);
+
+            var arrow = document.getElementById(`arrow-${vId}`);
+            if (arrow && typeof vData.heading === 'number') {
+                arrow.style.transform = `rotate(${vData.heading}deg)`;
+            }
+
+            entry.trail.addLatLng(pos);
+            var pts = entry.trail.getLatLngs();
+            if (pts.length > 300) entry.trail.setLatLngs(pts.slice(pts.length - 300));
+
+            // If primary vehicle, update HUD and pan
+            if (vId === myPrimaryVehicleId || Object.keys(vehiclesMap).length === 1) {
+                updateTelemetryHUD(vData);
+                checkHazardProximities(pos);
+                if (isFollowing) map.panTo(pos, { animate: false });
+            }
+
+            updateVehiclesCountHUD();
+        }
+
+        function updateVehiclesCountHUD() {
+            var count = Object.keys(vehiclesMap).length;
+            document.getElementById('hud-vehicles-count').innerText = count;
+        }
+
+        var activeHazardsMap = {};  // event_id -> { data, marker }
+        var activeProxHazardId = null;
+        var answeredProximityCooldown = {};
+
+        // 3. Routing Setup
         var routingControl = L.Routing.control({
             waypoints: [],
             routeWhileDragging: false,
@@ -144,201 +826,567 @@
             fitSelectedRoutes: true
         }).addTo(map);
 
-        // 3. Tap map to quickly route from live location
-        map.on('click', function(e) {
-            if (latestCarLatLng) {
-                sourceLatLng = latestCarLatLng;
-                destLatLng = e.latlng;
-                routingControl.setWaypoints([sourceLatLng, destLatLng]);
-                document.getElementById('route-status').innerText = 'Routing from live location.';
-            } else {
-                alert("Waiting for GPS lock before routing.");
-            }
-        });
+        // 4. Acoustic Synthesizer
+        var audioCtx = null;
+        function playChime(type) {
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
 
-        // Manual pan/drag disables auto-follow
-        map.on('dragstart', function() { setFollow(false); });
+                var osc = audioCtx.createOscillator();
+                var gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                var now = audioCtx.currentTime;
 
-        function clearRoute() {
-            routingControl.setWaypoints([]);
-            sourceLatLng = null;
-            destLatLng = null;
-            document.getElementById('source-input').value = '';
-            document.getElementById('dest-input').value = '';
-            document.getElementById('route-status').innerText = '';
+                if (type === 'proximity') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(880, now);
+                    osc.frequency.setValueAtTime(1174, now + 0.12);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+                    osc.start(now);
+                    osc.stop(now + 0.35);
+                } else if (type === 'resolved') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(523.25, now);
+                    osc.frequency.setValueAtTime(659.25, now + 0.1);
+                    osc.frequency.setValueAtTime(783.99, now + 0.2);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+                    osc.start(now);
+                    osc.stop(now + 0.45);
+                } else if (type === 'click') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(440, now);
+                    gain.gain.setValueAtTime(0.05, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+                    osc.start(now);
+                    osc.stop(now + 0.04);
+                }
+            } catch(e) {}
         }
 
-        function setFollow(on) {
-            isFollowing = on;
-            var btn = document.getElementById('follow-btn');
-            if (on) {
-                btn.innerText = '📍 Following';
-                btn.classList.remove('off');
-                if (displayLatLng) map.panTo(displayLatLng);
-            } else {
-                btn.innerText = '📍 Follow';
-                btn.classList.add('off');
-            }
+        // 5. Proximity Calculation & Verification Modal
+        function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+            var R = 6371e3;
+            var phi1 = lat1 * Math.PI / 180;
+            var phi2 = lat2 * Math.PI / 180;
+            var dPhi = (lat2 - lat1) * Math.PI / 180;
+            var dLambda = (lon2 - lon1) * Math.PI / 180;
+            var a = Math.sin(dPhi/2) * Math.sin(dPhi/2) +
+                    Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLambda/2) * Math.sin(dLambda/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
-        function toggleFollow() { setFollow(!isFollowing); }
 
-        // ---- Smooth marker animation between GPS fixes ----
-        function animateMarkerTo(newLatLng, headingDeg) {
-            var start = displayLatLng || newLatLng;
-            var startTime = performance.now();
-            var duration = 900; // ms, roughly matches the ~1s GPS update rate
+        function checkHazardProximities(currentPos) {
+            if (!currentPos) return;
+            var PROXIMITY_THRESHOLD = 45; // meters
+            var now = Date.now();
+            var nearestHazard = null;
+            var minDistance = Infinity;
 
-            if (animFrame) cancelAnimationFrame(animFrame);
+            for (var evId in activeHazardsMap) {
+                var ev = activeHazardsMap[evId].data;
+                if (!ev.active) continue;
 
-            // Rotate the arrow toward the new heading immediately
-            var svg = document.getElementById('car-svg');
-            if (svg && typeof headingDeg === 'number') {
-                svg.style.transform = 'rotate(' + headingDeg + 'deg)';
-            }
+                var dist = calculateDistanceMeters(currentPos.lat, currentPos.lng, ev.lat, ev.lng);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    nearestHazard = ev;
+                }
 
-            function step(now) {
-                var t = Math.min(1, (now - startTime) / duration);
-                var lat = start.lat + (newLatLng.lat - start.lat) * t;
-                var lng = start.lng + (newLatLng.lng - start.lng) * t;
-                var pos = L.latLng(lat, lng);
-
-                displayLatLng = pos;
-                trackerMarker.setLatLng(pos);
-                if (isFollowing) map.panTo(pos, { animate: false });
-
-                if (t < 1) {
-                    animFrame = requestAnimationFrame(step);
-                } else {
-                    trail.addLatLng(newLatLng);
-                    var pts = trail.getLatLngs();
-                    if (pts.length > MAX_TRAIL_POINTS) {
-                        trail.setLatLngs(pts.slice(pts.length - MAX_TRAIL_POINTS));
+                if (dist <= PROXIMITY_THRESHOLD) {
+                    var lastPrompt = answeredProximityCooldown[ev.id] || 0;
+                    if (now - lastPrompt > 60000) {
+                        openProximityVerificationModal(ev, Math.round(dist));
                     }
                 }
             }
-            animFrame = requestAnimationFrame(step);
+
+            var banner = document.getElementById('proximity-banner');
+            if (nearestHazard && minDistance <= 70) {
+                document.getElementById('prox-title').innerText = `⚠️ ${nearestHazard.title.toUpperCase()} AHEAD`;
+                document.getElementById('prox-desc').innerText = `Approaching in ~${Math.round(minDistance)} meters (${nearestHazard.type.replace('_', ' ')})`;
+                banner.style.display = 'flex';
+            } else {
+                banner.style.display = 'none';
+            }
         }
 
-        // ---- Geocoding (Nominatim) for source/destination inputs ----
+        function openProximityVerificationModal(hazard, distMeters) {
+            activeProxHazardId = hazard.id;
+            answeredProximityCooldown[hazard.id] = Date.now();
+            playChime('proximity');
+
+            var typeIcons = { 'pothole': '🕳️', 'speed_bump': '⚠️', 'roadblock': '🚧', 'traffic': '🚗', 'custom': '📍' };
+            document.getElementById('verify-icon').innerText = typeIcons[hazard.type] || '⚠️';
+            document.getElementById('verify-title').innerText = hazard.title;
+            document.getElementById('verify-subtitle').innerText = `You are within ${distMeters}m of this reported road event.`;
+            document.getElementById('verify-details').innerText = hazard.description || 'No additional details provided.';
+            document.getElementById('verify-meta').innerText = `Severity: ${hazard.severity.toUpperCase()} • Added: ${new Date(hazard.created_at * 1000).toLocaleTimeString()}`;
+
+            var yesCount = (hazard.confirmations || []).length;
+            var noCount = (hazard.dismissals || []).length;
+            document.getElementById('verify-yes-count').innerText = `👍 ${yesCount} Confirmed`;
+            document.getElementById('verify-no-count').innerText = `❌ ${noCount} / 3 Dismissals`;
+
+            openModal('verify-modal');
+        }
+
+        function submitVerificationVote(voteType) {
+            if (!activeProxHazardId) return;
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    action: 'vote_event',
+                    event_id: activeProxHazardId,
+                    vote: voteType,
+                    user_id: myUserId
+                }));
+            }
+            closeModal('verify-modal');
+            showToast(voteType === 'yes' ? "👍 Hazard confirmed!" : "❌ Dismissal recorded (3 votes remove it)");
+        }
+
+        // 6. Hazard Rendering
+        function getHazardIcon(type) {
+            var iconConfig = {
+                'pothole': { bg: '#ef4444', emoji: '🕳️' },
+                'speed_bump': { bg: '#f59e0b', emoji: '⚠️' },
+                'roadblock': { bg: '#f97316', emoji: '🚧' },
+                'traffic': { bg: '#a855f7', emoji: '🚗' },
+                'accident': { bg: '#dc2626', emoji: '💥' },
+                'custom': { bg: '#06b6d4', emoji: '📍' }
+            };
+            var cfg = iconConfig[type] || iconConfig['custom'];
+            return L.divIcon({
+                className: '',
+                html: `<div class="hazard-pin" style="background:${cfg.bg};">${cfg.emoji}</div>`,
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
+            });
+        }
+
+        function createHazardPopup(ev) {
+            var yesCount = (ev.confirmations || []).length;
+            var noCount = (ev.dismissals || []).length;
+            return `
+                <div style="font-family:'Inter',sans-serif; min-width:210px; color:#0f172a;">
+                    <div style="font-size:14px; font-weight:800; color:#b91c1c; margin-bottom:3px;">${ev.title}</div>
+                    <div style="font-size:12px; color:#475569; margin-bottom:6px;">${ev.description || 'No description'}</div>
+                    <div style="font-size:11px; background:#f1f5f9; padding:5px 8px; border-radius:6px; margin-bottom:8px;">
+                        <div><b>Type:</b> ${ev.type.replace('_', ' ').toUpperCase()}</div>
+                        <div><b>Severity:</b> ${ev.severity.toUpperCase()}</div>
+                        <div><b>Status:</b> 👍 ${yesCount} | ❌ ${noCount}/3 No-Votes</div>
+                    </div>
+                    <div style="display:flex; gap:6px;">
+                        <button onclick="voteDirectly('${ev.id}', 'yes')" style="flex:1; padding:5px; background:#10b981; color:white; border:none; border-radius:4px; font-size:11px; font-weight:bold; cursor:pointer;">👍 Still There</button>
+                        <button onclick="voteDirectly('${ev.id}', 'no')" style="flex:1; padding:5px; background:#ef4444; color:white; border:none; border-radius:4px; font-size:11px; font-weight:bold; cursor:pointer;">❌ Resolved</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function addOrUpdateHazardMarker(ev) {
+            if (activeHazardsMap[ev.id]) {
+                activeHazardsMap[ev.id].data = ev;
+                activeHazardsMap[ev.id].marker.setPopupContent(createHazardPopup(ev));
+            } else {
+                var marker = L.marker([ev.lat, ev.lng], { icon: getHazardIcon(ev.type) }).addTo(map);
+                marker.bindPopup(createHazardPopup(ev));
+                activeHazardsMap[ev.id] = { data: ev, marker: marker };
+            }
+            updateHazardsCountHUD();
+        }
+
+        function removeHazardMarker(eventId) {
+            if (activeHazardsMap[eventId]) {
+                map.removeLayer(activeHazardsMap[eventId].marker);
+                delete activeHazardsMap[eventId];
+                updateHazardsCountHUD();
+                playChime('resolved');
+                showToast(`🎉 Hazard Resolved & Removed by Community`);
+            }
+        }
+
+        function voteDirectly(eventId, voteType) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    action: 'vote_event',
+                    event_id: eventId,
+                    vote: voteType,
+                    user_id: myUserId
+                }));
+            }
+            map.closePopup();
+            showToast(voteType === 'yes' ? "👍 Confirmation submitted" : "❌ Dismissal vote submitted");
+        }
+
+        function updateHazardsCountHUD() {
+            document.getElementById('hud-hazards-count').innerText = Object.keys(activeHazardsMap).length;
+        }
+
+        // 7. Quick & Custom Hazard Creation
+        function quickReport(type) {
+            var primaryPos = (myPrimaryVehicleId && vehiclesMap[myPrimaryVehicleId]) ? vehiclesMap[myPrimaryVehicleId].pos : map.getCenter();
+            var titles = {
+                'pothole': 'Severe Pothole',
+                'speed_bump': 'Dangerous Speed Bump',
+                'roadblock': 'Road Closed / Barricade',
+                'traffic': 'Heavy Traffic Jam'
+            };
+
+            var ev = {
+                id: 'haz-' + Date.now().toString(36),
+                type: type,
+                title: titles[type] || 'Road Hazard',
+                description: `Reported by ${myUserId} at ${new Date().toLocaleTimeString()}`,
+                lat: primaryPos.lat + (Math.random() - 0.5) * 0.0001,
+                lng: primaryPos.lng + (Math.random() - 0.5) * 0.0001,
+                severity: type === 'pothole' || type === 'roadblock' ? 'high' : 'medium'
+            };
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    action: 'add_event',
+                    data: ev,
+                    user_id: myUserId
+                }));
+                showToast(`🚨 ${titles[type]} broadcasted to all vehicles!`);
+            }
+        }
+
+        function openCustomHazardModal() {
+            document.getElementById('modal-title').value = '';
+            document.getElementById('modal-desc').value = '';
+            activeFocusedInput = document.getElementById('modal-title');
+            openModal('custom-modal');
+        }
+
+        function submitCustomHazard() {
+            var title = document.getElementById('modal-title').value.trim();
+            var desc = document.getElementById('modal-desc').value.trim();
+            var type = document.getElementById('modal-type').value;
+            var severity = document.getElementById('modal-severity').value;
+            var primaryPos = (myPrimaryVehicleId && vehiclesMap[myPrimaryVehicleId]) ? vehiclesMap[myPrimaryVehicleId].pos : map.getCenter();
+
+            if (!title) { alert("Please enter a hazard title."); return; }
+
+            var ev = {
+                id: 'haz-custom-' + Date.now().toString(36),
+                type: type,
+                title: title,
+                description: desc,
+                lat: primaryPos.lat,
+                lng: primaryPos.lng,
+                severity: severity
+            };
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    action: 'add_event',
+                    data: ev,
+                    user_id: myUserId
+                }));
+                showToast(`✅ Custom Event '${title}' broadcasted!`);
+            }
+            closeModal('custom-modal');
+        }
+
+        // 8. Virtual Touchscreen Keyboard
+        var activeFocusedInput = null;
+        var vkShiftActive = false;
+        document.getElementById('modal-title').addEventListener('focus', function() { activeFocusedInput = this; });
+        document.getElementById('modal-desc').addEventListener('focus', function() { activeFocusedInput = this; });
+
+        function vkType(char) {
+            playChime('click');
+            if (!activeFocusedInput) activeFocusedInput = document.getElementById('modal-title');
+            var output = vkShiftActive ? char.toUpperCase() : char.toLowerCase();
+            activeFocusedInput.value += output;
+            activeFocusedInput.focus();
+        }
+        function vkBackspace() {
+            playChime('click');
+            if (!activeFocusedInput) activeFocusedInput = document.getElementById('modal-title');
+            activeFocusedInput.value = activeFocusedInput.value.slice(0, -1);
+            activeFocusedInput.focus();
+        }
+        function vkClear() {
+            playChime('click');
+            if (!activeFocusedInput) activeFocusedInput = document.getElementById('modal-title');
+            activeFocusedInput.value = '';
+            activeFocusedInput.focus();
+        }
+        function vkToggleShift() {
+            playChime('click');
+            vkShiftActive = !vkShiftActive;
+            var btn = document.getElementById('vk-shift');
+            btn.style.background = vkShiftActive ? '#3b82f6' : '#1e293b';
+        }
+
+        // 9. WebSocket Multi-Vehicle Connection
+        var wsProtocol = (location.protocol === 'https:') ? 'wss://' : 'ws://';
+        var wsUrl = wsProtocol + location.host + '/ws';
+        var socket = null;
+
+        function connectWebSocket() {
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = function() {
+                document.getElementById('hud-gps-badge').className = 'badge-locked';
+                document.getElementById('hud-gps-badge').innerText = 'CONNECTED';
+            };
+
+            socket.onmessage = function(event) {
+                try {
+                    var msg = JSON.parse(event.data);
+
+                    if (msg.type === 'initial_state') {
+                        if (msg.vehicles && Array.isArray(msg.vehicles)) {
+                            msg.vehicles.forEach(createOrUpdateVehicle);
+                        }
+                        if (msg.events && Array.isArray(msg.events)) {
+                            msg.events.forEach(addOrUpdateHazardMarker);
+                        }
+                    }
+                    else if (msg.type === 'gps_update') {
+                        createOrUpdateVehicle(msg.data);
+                    }
+                    else if (msg.type === 'event_added') {
+                        addOrUpdateHazardMarker(msg.data);
+                        showToast(`🚨 New Hazard: ${msg.data.title}`);
+                    }
+                    else if (msg.type === 'event_updated') {
+                        addOrUpdateHazardMarker(msg.data);
+                    }
+                    else if (msg.type === 'event_removed') {
+                        removeHazardMarker(msg.event_id);
+                    }
+                } catch(e) { console.error(e); }
+            };
+
+            socket.onclose = function() {
+                document.getElementById('hud-gps-badge').className = 'badge-waiting';
+                document.getElementById('hud-gps-badge').innerText = 'RECONNECTING';
+                setTimeout(connectWebSocket, 2000);
+            };
+        }
+        connectWebSocket();
+
+        function updateTelemetryHUD(d) {
+            document.getElementById('hud-speed').innerHTML = `${(d.speed || 0).toFixed(1)} <small style="font-size:11px;font-weight:normal;">km/h</small>`;
+            var hdg = Math.round(d.heading || 0);
+            var directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+            var cardinal = directions[Math.round(((hdg %= 360) < 0 ? hdg + 360 : hdg) / 45) % 8];
+            document.getElementById('hud-heading').innerText = `${String(hdg).padStart(3, '0')}° ${cardinal}`;
+            var badge = document.getElementById('hud-gps-badge');
+            badge.className = 'badge-locked';
+            badge.innerText = d.status || 'LOCKED';
+        }
+
+        // 10. Modals & Controls
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+        function showToast(text) {
+            var t = document.getElementById('toast');
+            t.innerText = text;
+            t.style.display = 'block';
+            setTimeout(function() { t.style.display = 'none'; }, 3500);
+        }
+
+        function toggleFollow() {
+            isFollowing = !isFollowing;
+            var btn = document.getElementById('follow-btn');
+            if (isFollowing) {
+                btn.innerText = '📍 Following';
+                btn.style.background = '#2563eb';
+                if (myPrimaryVehicleId && vehiclesMap[myPrimaryVehicleId]) {
+                    map.panTo(vehiclesMap[myPrimaryVehicleId].pos);
+                }
+            } else {
+                btn.innerText = '📍 Follow Car';
+                btn.style.background = '#475569';
+            }
+        }
+        function centerVehicle() {
+            if (myPrimaryVehicleId && vehiclesMap[myPrimaryVehicleId]) {
+                map.setView(vehiclesMap[myPrimaryVehicleId].pos, 17);
+                isFollowing = true;
+                document.getElementById('follow-btn').innerText = '📍 Following';
+                document.getElementById('follow-btn').style.background = '#2563eb';
+            }
+        }
+        map.on('dragstart', function() {
+            isFollowing = false;
+            document.getElementById('follow-btn').innerText = '📍 Follow Car';
+            document.getElementById('follow-btn').style.background = '#475569';
+        });
+
+        // 11. Simulator
+        var isSimulating = false;
+        var simTimer = null;
+        var simAngle = 0;
+
+        function toggleSimulatedDrive() {
+            var btn = document.getElementById('sim-drive-btn');
+            if (isSimulating) {
+                clearInterval(simTimer);
+                isSimulating = false;
+                btn.innerText = '🚗 Start Test Drive';
+                btn.className = 'btn-sm btn-primary';
+                document.getElementById('sim-indicator').innerText = 'READY';
+                document.getElementById('sim-indicator').style.color = '#10b981';
+            } else {
+                isSimulating = true;
+                btn.innerText = '⏹️ Stop Drive';
+                btn.className = 'btn-sm btn-danger';
+                document.getElementById('sim-indicator').innerText = 'DRIVING';
+                document.getElementById('sim-indicator').style.color = '#f59e0b';
+
+                var centerLat = 12.8420;
+                var centerLng = 80.1545;
+                var radius = 0.0018;
+
+                simTimer = setInterval(function() {
+                    simAngle += 0.04;
+                    var lat = centerLat + radius * Math.sin(simAngle);
+                    var lng = centerLng + radius * Math.cos(simAngle) * 1.3;
+                    var heading = ((simAngle + Math.PI/2) * 180 / Math.PI) % 360;
+
+                    var simGpsData = {
+                        vehicle_id: 'SIM_TEST_CAR',
+                        lat: lat,
+                        lng: lng,
+                        heading: heading,
+                        speed: 42.5 + Math.sin(simAngle * 3) * 5,
+                        sats: 11,
+                        status: 'SIMULATING'
+                    };
+
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            action: 'sim_gps',
+                            data: simGpsData
+                        }));
+                    }
+                }, 250);
+            }
+        }
+
+        function teleportNearHazard() {
+            var firstHazardId = Object.keys(activeHazardsMap)[0];
+            if (!firstHazardId) { showToast("No hazards on map!"); return; }
+            var h = activeHazardsMap[firstHazardId].data;
+
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    action: 'sim_gps',
+                    data: {
+                        vehicle_id: 'SIM_TEST_CAR',
+                        lat: h.lat - 0.00025,
+                        lng: h.lng,
+                        heading: 0,
+                        speed: 35.0,
+                        sats: 12,
+                        status: 'SIM_APPROACH'
+                    }
+                }));
+            }
+            showToast(`🚀 Teleported 28m before '${h.title}'!`);
+        }
+
+        function simulateCommunityNoVotes() {
+            var firstHazardId = Object.keys(activeHazardsMap)[0];
+            if (!firstHazardId) { showToast("No active hazards to vote on!"); return; }
+            var h = activeHazardsMap[firstHazardId].data;
+
+            ['user_node_1', 'user_node_2', 'user_node_3'].forEach(function(uId, idx) {
+                setTimeout(function() {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            action: 'vote_event',
+                            event_id: h.id,
+                            vote: 'no',
+                            user_id: uId
+                        }));
+                    }
+                }, idx * 400);
+            });
+            showToast(`👥 Simulating 3 users voting "No" on '${h.title}'...`);
+        }
+
+        // 12. Nominatim Routing
         function setupAutocomplete(inputId, listId, onSelect) {
             var input = document.getElementById(inputId);
             var list = document.getElementById(listId);
-            var debounceTimer = null;
-
+            var debounce = null;
             input.addEventListener('input', function() {
-                var query = input.value.trim();
-                clearTimeout(debounceTimer);
-                if (query.length < 3) {
-                    list.style.display = 'none';
-                    list.innerHTML = '';
-                    return;
-                }
-                debounceTimer = setTimeout(function() {
-                    fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(query))
-                        .then(function(res) { return res.json(); })
-                        .then(function(results) {
+                var q = input.value.trim();
+                clearTimeout(debounce);
+                if (q.length < 3) { list.style.display = 'none'; return; }
+                debounce = setTimeout(function() {
+                    fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`)
+                        .then(r => r.json())
+                        .then(results => {
                             list.innerHTML = '';
                             if (!results.length) { list.style.display = 'none'; return; }
-                            results.forEach(function(r) {
+                            results.forEach(r => {
                                 var item = document.createElement('div');
                                 item.innerText = r.display_name;
                                 item.onclick = function() {
                                     input.value = r.display_name;
                                     list.style.display = 'none';
-                                    list.innerHTML = '';
                                     onSelect(L.latLng(parseFloat(r.lat), parseFloat(r.lon)));
                                 };
                                 list.appendChild(item);
                             });
                             list.style.display = 'block';
-                        })
-                        .catch(function() { list.style.display = 'none'; });
-                }, 400);
+                        }).catch(() => { list.style.display = 'none'; });
+                }, 350);
             });
-
-            document.addEventListener('click', function(e) {
-                if (e.target !== input) list.style.display = 'none';
-            });
-        }
-        setupAutocomplete('source-input', 'source-list', function(latlng) { sourceLatLng = latlng; });
-        setupAutocomplete('dest-input', 'dest-list', function(latlng) { destLatLng = latlng; });
-
-        function useLiveLocationAsSource() {
-            if (!latestCarLatLng) { alert("Waiting for GPS lock before using live location."); return; }
-            sourceLatLng = latestCarLatLng;
-            document.getElementById('source-input').value = 'My live location';
+            document.addEventListener('click', function(e) { if (e.target !== input) list.style.display = 'none'; });
         }
 
-        function routeFromInputs() {
-            var statusEl = document.getElementById('route-status');
-            if (!sourceLatLng) { statusEl.innerText = 'Choose a source (pick a suggestion or use live location).'; return; }
-            if (!destLatLng) { statusEl.innerText = 'Choose a destination from the suggestions.'; return; }
-            routingControl.setWaypoints([sourceLatLng, destLatLng]);
-            statusEl.innerText = 'Route set.';
+        var navSource = null;
+        var navDest = null;
+        setupAutocomplete('source-input', 'source-list', function(latlng) { navSource = latlng; });
+        setupAutocomplete('dest-input', 'dest-list', function(latlng) { navDest = latlng; });
+
+        function useLiveAsSource() {
+            var primaryPos = (myPrimaryVehicleId && vehiclesMap[myPrimaryVehicleId]) ? vehiclesMap[myPrimaryVehicleId].pos : null;
+            if (!primaryPos) { alert("Waiting for GPS lock..."); return; }
+            navSource = primaryPos;
+            document.getElementById('source-input').value = '📍 Current Live Location';
         }
 
-        // 4. WebSocket connection to the Python server
-        // Connects to whatever host served this page, so no IP hardcoding needed.
-        var wsProtocol = (location.protocol === 'https:') ? 'wss://' : 'ws://';
-        var wsUrl = wsProtocol + location.host + '/ws';
-        var socket = new WebSocket(wsUrl);
+        function calculateRoute() {
+            var status = document.getElementById('route-status');
+            if (!navSource || !navDest) { status.innerText = "Select both source & destination."; return; }
+            routingControl.setWaypoints([navSource, navDest]);
+            status.innerText = "Route set.";
+        }
 
-        socket.onopen = function() {
-            document.getElementById('status').firstChild.textContent = "Connected! Waiting for GPS lock...";
-        };
+        function clearRoute() {
+            routingControl.setWaypoints([]);
+            navSource = null;
+            navDest = null;
+            document.getElementById('source-input').value = '';
+            document.getElementById('dest-input').value = '';
+            document.getElementById('route-status').innerText = '';
+        }
 
-        socket.onmessage = function(event) {
-            var data = JSON.parse(event.data);
-            
-            // Handle hazard events
-            if (data.type === 'event') {
-                if (data.event_id === 5) { // Pothole
-                    var potholeIcon = L.divIcon({
-                        className: 'custom-div-icon',
-                        html: "<div style='background-color:#ff0000; width:16px; height:16px; border-radius:50%; border: 3px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);'></div>",
-                        iconSize: [16, 16],
-                        iconAnchor: [8, 8]
-                    });
-                    
-                    var popupHtml = "<b>⚠️ Pothole Logged</b><br/>Lat: " + data.lat.toFixed(6) + "<br/>Lng: " + data.lng.toFixed(6);
-                                    
-                    L.marker([data.lat, data.lng], {icon: potholeIcon})
-                     .addTo(map).bindPopup(popupHtml).openPopup();
-                }
-                else if (data.event_id === 4) { // Crash
-                    var crashIcon = L.divIcon({
-                        className: 'custom-div-icon',
-                        html: "<div style='background-color:#000000; color:white; width:24px; height:24px; border-radius:50%; border: 3px solid #ff9900; box-shadow: 0 0 8px rgba(255,0,0,0.8); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold;'>💥</div>",
-                        iconSize: [24, 24],
-                        iconAnchor: [12, 12]
-                    });
-                    
-                    var popupHtml = "<b style='color:red;'>💥 MAJOR CRASH DETECTED!</b><br/>Lat: " + data.lat.toFixed(6) + "<br/>Lng: " + data.lng.toFixed(6);
-                                    
-                    L.marker([data.lat, data.lng], {icon: crashIcon})
-                     .addTo(map).bindPopup(popupHtml).openPopup();
-                }
-                return;
+        function toggleNavPanel() {
+            var content = document.getElementById('nav-content');
+            var btn = document.getElementById('toggle-nav-btn');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                btn.innerText = '−';
+            } else {
+                content.style.display = 'none';
+                btn.innerText = '+';
             }
-
-            if (data.lat == null || data.lng == null) return;
-
-            latestCarLatLng = L.latLng(data.lat, data.lng);
-            animateMarkerTo(latestCarLatLng, data.heading);
-
-            document.getElementById('status').firstChild.textContent =
-                'Live: ' + data.lat.toFixed(5) + ', ' + data.lng.toFixed(5);
-            document.getElementById('status-sub').innerText =
-                'Speed: ' + (data.speed || 0).toFixed(1) + ' km/h  •  Heading: ' + (data.heading || 0).toFixed(0) + '°';
-        };
-
-        socket.onerror = function() {
-            document.getElementById('status').firstChild.textContent = "WebSocket connection failed.";
-        };
-
-        socket.onclose = function() {
-            document.getElementById('status').firstChild.textContent = "Disconnected from server.";
-        };
+        }
     </script>
 </body>
 </html>
