@@ -1,4 +1,4 @@
-# Decentralized EV Vehicle-to-Vehicle (V2V) Communication Platform
+# Decentralized Vehicle-to-Vehicle (V2V) Communication Platform
 
 ## What We Did
 We built a decentralized communication system that enables vehicles to exchange real-time safety and traffic information without relying on cloud connectivity. By leveraging edge computing on ESP32 microcontrollers, vehicles achieve low-latency communication to avoid collisions, share road hazards, and support cooperative driving. 
@@ -20,6 +20,8 @@ We developed a complete ecosystem including:
 ## How to Replicate It
 
 ### 1. Software Environment Setup
+
+#### Python Environment (Backend & CV)
 1. **Clone the repository**:
    ```bash
    git clone https://github.com/Anto-Gerz07/vehicle-to-vehicle-communication-platform.git
@@ -31,14 +33,21 @@ We developed a complete ecosystem including:
    python3 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
-   pip install aiohttp
    ```
+   *(Note: This installs all dependencies for the interactive simulator, road safety CV pipeline, and mapping server).*
 
+#### Web Simulator (Frontend)
+If you want to use the modern React/Vite web simulator interface, ensure you have Node.js installed:
+```bash
+cd v2v-web-simulator
+npm install
+npm run dev
+```
 ### 2. Hardware Implementation (ESP32 Nodes)
 To replicate the physical V2V mesh network:
 1. Wire an ESP32 to a 0.96-inch SSD1306 OLED display (I2C), an MPU6500 IMU (I2C), and a NEO-6M GPS module (UART2).
 2. For long-range fallback, connect an SX1278 LoRa module via SPI.
-3. Flash the main firmware located in `esp32_firmware/esp32_firmware.ino` to each vehicle node. For LoRa nodes, use the sketches in `esp32_firmware/Lora_sender` or `Lora_receiver`.
+3. Flash the main firmware located in `firmware/car1/car1.ino` to the primary vehicle node. For LoRa bridge and receiver nodes, use the sketches in `firmware/car1_lora/` and `firmware/car2/` respectively.
 4. Ensure each ESP32 has a unique `myState.vehicle_id` (e.g., 'A', 'B') in the firmware setup before flashing.
 5. You can bridge the node to a PC using the serial bridge script:
    ```bash

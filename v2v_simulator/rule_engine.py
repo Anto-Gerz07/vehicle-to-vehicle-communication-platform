@@ -17,25 +17,42 @@ class RuleEngine:
         self.speed_limit = speed_limit
         self.last_speed = None
         self.last_time = None
+        
+        # [Item 6] Event Hysteresis
+        self.current_event = Event.NORMAL
+        self.event_start_time = 0
+        self.hold_duration = 1.5 # seconds
 
     def evaluate(self, sensor_state, current_time):
         speed = sensor_state['speed']
         accel = sensor_state['acceleration']
         
-        event = Event.NORMAL
+        raw_event = Event.NORMAL
         
         if accel <= -5.0 and speed <= 5.0:
-            event = Event.ACCIDENT
+            raw_event = Event.ACCIDENT
         elif accel < -3.0:
-            event = Event.HARSH_BRAKING
+            raw_event = Event.HARSH_BRAKING
         elif sensor_state.get('tcs_active', False):
-            event = Event.LOSS_OF_TRACTION
+            raw_event = Event.LOSS_OF_TRACTION
         elif self.last_speed is not None and (self.last_speed - speed) > 20 and (current_time - self.last_time) < 2.0:
-            event = Event.SUDDEN_SLOWDOWN
+            raw_event = Event.SUDDEN_SLOWDOWN
         elif speed > self.speed_limit:
-            event = Event.OVERSPEED
+            raw_event = Event.OVERSPEED
+            
+        # Hysteresis Logic
+        if raw_event != Event.NORMAL and raw_event >= self.current_event:
+            # Upgrade or maintain a non-normal event
+            self.current_event = raw_event
+            self.event_start_time = current_time
+        elif self.current_event != Event.NORMAL:
+            # Downgrade only if hold duration has passed
+            if current_time - self.event_start_time > self.hold_duration:
+                self.current_event = raw_event
+        else:
+            self.current_event = raw_event
             
         self.last_speed = speed
         self.last_time = current_time
         
-        return event
+        return self.current_event

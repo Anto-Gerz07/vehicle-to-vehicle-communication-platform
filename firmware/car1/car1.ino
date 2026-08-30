@@ -5,6 +5,10 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <TinyGPS++.h>
+#include <SD.h>
+#include <SPI.h>
+
+#define SD_CS 5
 
 // Removed Adafruit_MPU6050 for MPU6500 raw I2C compatibility
 #include <esp_idf_version.h>
@@ -63,22 +67,7 @@ void initMPU6500() {
 #define LED_RED    26
 #define BUZZER_PIN 14
 
-// --- Custom Bitmaps (16x16) ---
-const unsigned char icon_car[] PROGMEM = {
-  0x00, 0x00, 0x00, 0x00, 0xf0, 0x0f, 0x08, 0x10, 0x04, 0x20, 0x82, 0x41,
-  0x7e, 0x7e, 0x81, 0x81, 0x81, 0x81, 0xff, 0xff, 0x81, 0x81, 0x42, 0x42,
-  0x3c, 0x3c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
-const unsigned char icon_warning[] PROGMEM = {
-  0x00, 0x00, 0x80, 0x01, 0xc0, 0x03, 0x40, 0x02, 0x60, 0x06, 0x60, 0x06,
-  0x30, 0x0c, 0x30, 0x0c, 0x38, 0x1c, 0x18, 0x18, 0x18, 0x18, 0x0c, 0x30,
-  0x00, 0x00, 0x0c, 0x30, 0xff, 0xff, 0x00, 0x00
-};
-const unsigned char icon_siren[] PROGMEM = {
-  0x00, 0x00, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0xf8, 0x1f, 0x1c, 0x38,
-  0x1c, 0x38, 0x1c, 0x38, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
+
 
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
@@ -99,6 +88,8 @@ struct VehicleStatePacket {
 
 VehicleStatePacket myState;
 VehicleStatePacket receivedAlert;
+
+void logBlackbox(VehicleStatePacket state);
 
 unsigned long lastSerialUpdate = 0;
 unsigned long alertReceivedTime = 0;
@@ -141,6 +132,29 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
       alertReceivedTime = millis();
       currentState = STATE_WARNING;
     }
+    
+    // Log incoming telemetry to blackbox SD
+    logBlackbox(incoming);
+  }
+}
+
+void logBlackbox(VehicleStatePacket state) {
+  File logFile = SD.open("/blackbox.csv", FILE_APPEND);
+  if (logFile) {
+    logFile.print(millis());
+    logFile.print(",");
+    logFile.print(state.vehicle_id);
+    logFile.print(",");
+    logFile.print(state.latitude, 6);
+    logFile.print(",");
+    logFile.print(state.longitude, 6);
+    logFile.print(",");
+    logFile.print(state.speed_x100 / 100.0);
+    logFile.print(",");
+    logFile.print(state.accel_x100 / 100.0);
+    logFile.print(",");
+    logFile.println(state.event);
+    logFile.close();
   }
 }
 
@@ -148,8 +162,23 @@ void setup() {
   Serial.begin(115200);
   GPS.begin(9600, SERIAL_8N1, RXD2, TXD2);
   
+  if (!SD.begin(SD_CS)) {
+    Serial.println(F("SD Card Mount Failed"));
+  } else {
+    Serial.println(F("SD Card Mount Successful"));
+    File testFile = SD.open("/blackbox.csv");
+    if (!testFile || testFile.size() == 0) {
+      if (testFile) testFile.close();
+      File logFile = SD.open("/blackbox.csv", FILE_WRITE);
+      if (logFile) {
+        logFile.println(F("timestamp_ms,vehicle_id,lat,lon,speed,accel,event"));
+        logFile.close();
+      }
+    } else {
+      testFile.close();
+    }
+  }
 
-  
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
     for(;;);
@@ -165,11 +194,13 @@ void setup() {
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_YELLOW, OUTPUT);
   pinMode(LED_RED, OUTPUT);
+  
   pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
   digitalWrite(LED_GREEN, LOW);
   digitalWrite(LED_YELLOW, LOW);
   digitalWrite(LED_RED, LOW);
-  noTone(BUZZER_PIN);
   
   if (esp_now_init() != ESP_OK) {
     display.clearDisplay();
@@ -207,237 +238,124 @@ float smoothLerp(float a, float b, float t) {
 }
 
 void drawStateBoot(unsigned long currentMillis) {
-  // Cinematic Boot Logo (Geometric V2V)
-  display.drawRect(24, 8, 80, 32, SSD1306_WHITE);
-  
-  display.setFont(&FreeSans9pt7b);
+  display.setFont();
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(44, 30);
+  display.setTextSize(4);
+  display.setCursor(28, 16);
   display.print("V2V");
   
-  display.setFont();
-  display.setCursor(44, 46);
-  display.print("SYSTEM");
-  
-  // Clean Loading Bar
   float progress = constrain((currentMillis - bootTime) / 5000.0, 0.0, 1.0);
-  int barW = (int)(progress * 100);
-  display.drawRoundRect(14, 56, 100, 6, 2, SSD1306_WHITE);
-  display.fillRoundRect(14, 56, barW, 6, 2, SSD1306_WHITE);
-  
   if (progress >= 1.0) {
     currentState = STATE_WAITING;
   }
 }
 
 void drawStateWaiting(unsigned long currentMillis) {
-  display.setFont(); // Use default font for small text
-  display.setCursor(20, 20);
-  display.println(F("Waiting for PC..."));
-  
-  // Pulsing animation
-  int w = (currentMillis / 15) % 100;
-  display.drawRoundRect(14, 40, 100, 6, 3, SSD1306_WHITE);
-  display.fillRoundRect(14 + w, 40, 10, 6, 3, SSD1306_WHITE);
+  display.setFont(); 
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(2);
+  display.setCursor(22, 24);
+  display.print(F("WAITING"));
 }
 
 void drawStateStandalone(unsigned long currentMillis) {
   display.setFont();
-  display.setCursor(0, 0);
-  display.print(F("STANDALONE V2V NODE"));
-  display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
+  display.setTextColor(SSD1306_WHITE);
   
-  display.setFont(&FreeSans9pt7b);
-  display.setCursor(0, 30);
-  if (gps.speed.isValid()) {
-    display.print((int)gps.speed.kmph());
-    display.setFont();
-    display.print(F(" km/h"));
+  int displaySpeed = gps.speed.isValid() ? (int)gps.speed.kmph() : 0;
+  if (displaySpeed < 10) {
+    display.setTextSize(5);
+    display.setCursor(45, 12);
+  } else if (displaySpeed < 100) {
+    display.setTextSize(5);
+    display.setCursor(30, 12);
   } else {
-    display.setFont();
-    display.print(F("SEARCHING SATS..."));
+    display.setTextSize(4);
+    display.setCursor(20, 16);
   }
+  display.print(displaySpeed);
   
+  display.setTextSize(1);
+  display.setCursor(102, 45);
+  display.print(F("km/h"));
+  
+  // Minimalist SAT status at bottom
   display.setFont();
-  display.setCursor(0, 42);
+  display.setCursor(5, 55);
   display.print(F("SATS: "));
   display.print(gps.satellites.isValid() ? gps.satellites.value() : 0);
   
-  // Right Side: Artificial Horizon (Inclinometer)
-  int cx = 100;
-  int cy = 34;
-  int r = 16;
-  display.drawCircle(cx, cy, r, SSD1306_WHITE);
-  
-  // Pitch shifts the line up/down, Roll rotates it
-  float pitchScale = 0.3; // pixels per degree
-  int yOffset = constrain((int)(currentPitch * pitchScale), -r + 2, r - 2);
-  
-  float rollRad = currentRoll * PI / 180.0;
-  int lineHalfLength = 12; // Length of the horizon line from center
-  
-  int x1 = cx - (int)(lineHalfLength * cos(rollRad)) + (int)(yOffset * sin(rollRad));
-  int y1 = cy + (int)(lineHalfLength * sin(rollRad)) + (int)(yOffset * cos(rollRad));
-  
-  int x2 = cx + (int)(lineHalfLength * cos(rollRad)) + (int)(yOffset * sin(rollRad));
-  int y2 = cy - (int)(lineHalfLength * sin(rollRad)) + (int)(yOffset * cos(rollRad));
-  
-  display.drawLine(x1, y1, x2, y2, SSD1306_WHITE);
-  // Center dot
-  display.drawPixel(cx, cy, SSD1306_WHITE);
-  
-  // Status Footer
-  display.drawRoundRect(0, 52, 128, 12, 3, SSD1306_WHITE);
-  display.setCursor(12, 54);
-  display.print(F("UNTETHERED MODE"));
+  // Standalone dot indicator top left
+  display.fillCircle(4, 4, 3, SSD1306_WHITE);
 }
 
 void drawStateTracking(unsigned long currentMillis) {
   float targetSpeed = (myState.speed_x100 / 100.0) * 3.6;
   currentSpeedDisplay = smoothLerp(currentSpeedDisplay, targetSpeed, 0.15);
   
-  // Header
   display.setFont();
-  display.setCursor(0, 0);
-  display.print(F("ID: "));
-  display.print(myState.vehicle_id);
-  display.setCursor(80, 0);
-  display.print(F("V2V: ON"));
-  display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
+  display.setTextColor(SSD1306_WHITE);
   
-  // Icon
-  display.drawBitmap(2, 14, icon_car, 16, 16, SSD1306_WHITE);
-  
-  // Speed Number
-  display.setFont(&FreeSans9pt7b);
-  display.setCursor(25, 34);
   int displaySpeed = (int)currentSpeedDisplay;
-  display.print(displaySpeed); // No leading zeros!
+  if (displaySpeed < 10) {
+    display.setTextSize(5);
+    display.setCursor(45, 12);
+  } else if (displaySpeed < 100) {
+    display.setTextSize(5);
+    display.setCursor(30, 12);
+  } else {
+    display.setTextSize(4);
+    display.setCursor(20, 16);
+  }
+  display.print(displaySpeed); 
   
-  // Unit
-  display.setFont();
-  display.setCursor(75, 26);
+  display.setTextSize(1);
+  display.setCursor(102, 45);
   display.print(F("km/h"));
   
-  // Status Footer
-  display.setCursor(0, 54);
-  if (myState.event == 0) {
-    display.print(F("Status: [ NORMAL ]"));
-  } else if (myState.event == 1) {
-    display.print(F("! OVERSPEED WARN !"));
-  } else if (myState.event == 2) {
-    display.print(F("!! LOSS OF TRACTN"));
-  } else if (myState.event == 4) {
-    display.print(F("!! CRASH DETECT !!"));
-  } else if (myState.event == 5) {
-    display.print(F("!! POTHOLE / BUMP"));
-  } else if (myState.event == 8) {
-    display.print(F("!! EMERGENCY SIREN"));
-  } else if (myState.event == 9) {
-    display.print(F("!! HARSH BRAKING"));
-  } else {
-    display.print(F("Status: [ ALERT ]"));
-  }
+  // Minimalist status indicator (dot in top right)
+  display.fillCircle(120, 8, 3, SSD1306_WHITE);
 }
 
 void drawStateWarning(unsigned long currentMillis) {
   bool flash = (currentMillis / 150) % 2 == 0;
   
-  // Determine if it's a local crash or a received crash
   uint8_t activeEvent = 0;
-  char activeId = '?';
-  bool isLocal = false;
-  
   if (myState.event == 4 || myState.event == 5 || myState.event == 8) {
     activeEvent = myState.event;
-    activeId = myState.vehicle_id;
-    isLocal = true;
   } else {
     activeEvent = receivedAlert.event;
-    activeId = receivedAlert.vehicle_id;
   }
   
-  bool isSevere = (activeEvent == 4 || activeEvent == 5 || activeEvent == 8);
-  
-  // Full-Screen Hijack for Severe Alerts
-  if (isSevere) {
-    display.fillScreen(flash ? SSD1306_WHITE : SSD1306_BLACK);
-    display.setTextColor(flash ? SSD1306_BLACK : SSD1306_WHITE);
-    
-    display.setFont(); // Use default font for scaling
-    display.setTextSize(3); // 3x scale!
-    
-    if (activeEvent == 4) {
-      display.setCursor(10, 15);
-      display.print(F("CRASH!"));
-    } else if (activeEvent == 5) {
-      display.setCursor(10, 15);
-      display.print(F("HAZARD"));
-    } else if (activeEvent == 8) {
-      display.setTextSize(2); // Slightly smaller to fit 'EMERGENCY'
-      display.setCursor(10, 20);
-      display.print(F("EMERGENCY"));
-    }
-    
-    display.setTextSize(1); // Reset scale
-    
-    display.setFont();
-    display.setCursor(20, 45);
-    if (isLocal) {
-      display.print(F("EVACUATE VEHICLE"));
-    } else if (activeEvent == 8) {
-      display.setCursor(10, 45); // Shift left a bit
-      display.print(F("VEHICLE BEHIND"));
-    } else {
-      display.print(F("CAR "));
-      display.print(activeId);
-      display.print(F(" AHEAD"));
-    }
-    
-    // Reset colors for next frame safety
-    display.setTextColor(SSD1306_WHITE);
-    return;
-  }
-  
-  // Standard Minor Warning (Overspeed, Hard Braking)
-  if (flash) {
-    display.fillScreen(SSD1306_WHITE);
-    display.setTextColor(SSD1306_BLACK);
-  } else {
-    display.setTextColor(SSD1306_WHITE);
-  }
-  
-  display.setFont(&FreeSans9pt7b);
-  display.setCursor(26, 18);
-  display.print(F("WARNING!"));
-  if (!flash) display.drawBitmap(5, 5, icon_warning, 16, 16, SSD1306_WHITE);
-  
+  display.fillScreen(flash ? SSD1306_WHITE : SSD1306_BLACK);
+  display.setTextColor(flash ? SSD1306_BLACK : SSD1306_WHITE);
   display.setFont();
-  display.setCursor(0, 26);
-  if (isLocal) {
-    display.print(F("FROM: LOCAL SENSOR"));
+  
+  if (activeEvent == 4) {
+    display.setTextSize(3);
+    display.setCursor(10, 20);
+    display.print(F("CRASH!"));
+  } else if (activeEvent == 5 || activeEvent == 2) {
+    display.setTextSize(3);
+    display.setCursor(10, 20);
+    display.print(F("HAZARD"));
+  } else if (activeEvent == 8) {
+    display.setTextSize(2);
+    display.setCursor(10, 24);
+    display.print(F("EMERGENCY"));
+  } else if (activeEvent == 1) {
+    display.setTextSize(2);
+    display.setCursor(10, 24);
+    display.print(F("OVERSPEED"));
+  } else if (activeEvent == 9) {
+    display.setTextSize(3);
+    display.setCursor(18, 20);
+    display.print(F("BRAKE"));
   } else {
-    display.print(F("FROM: Car "));
-    display.print(activeId);
+    display.setTextSize(3);
+    display.setCursor(10, 20);
+    display.print(F("ALERT!"));
   }
-  
-  if (flash) display.drawLine(0, 36, 128, 36, SSD1306_BLACK);
-  else display.drawLine(0, 36, 128, 36, SSD1306_WHITE);
-  
-  display.setCursor(0, 42);
-  if (activeEvent == 1) display.print(F(">>> OVERSPEED <<<"));
-  else if (activeEvent == 2) display.print(F(">>> LOSS OF TRACTN"));
-  else if (activeEvent == 9) display.print(F(">>> HARD BRAKING"));
-  else { display.print(F("EVENT: ")); display.print(activeEvent); }
-  
-  // Hazard footer
-  if (!flash) display.fillRoundRect(0, 52, 128, 12, 3, SSD1306_WHITE);
-  else display.drawRoundRect(0, 52, 128, 12, 3, SSD1306_BLACK);
-  
-  if (!flash) display.setTextColor(SSD1306_BLACK);
-  display.setCursor(18, 54);
-  display.print(F("HAZARD DETECTED"));
-  display.setTextColor(SSD1306_WHITE);
 }
 
 void loop() {
@@ -457,25 +375,36 @@ void loop() {
     digitalWrite(LED_RED, flash ? HIGH : LOW);
     digitalWrite(LED_YELLOW, flash ? LOW : HIGH);
     digitalWrite(LED_GREEN, LOW);
-    if (flash) tone(BUZZER_PIN, 1000); // High siren
-    else tone(BUZZER_PIN, 700);        // Low siren
+    // Distinct slow pulsating beep for ambulance
+    if ((currentMillis / 400) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
+    else digitalWrite(BUZZER_PIN, LOW);
   } else if (activeEventBuzzer == 4 || activeEventBuzzer == 9) { // CRASH / HARSH_BRAKING
     digitalWrite(LED_RED, HIGH);
     digitalWrite(LED_YELLOW, LOW);
     digitalWrite(LED_GREEN, LOW);
-    if ((currentMillis / 50) % 2 == 0) tone(BUZZER_PIN, 2000); // Fast aggressive beep
-    else noTone(BUZZER_PIN);
-  } else if (activeEventBuzzer == 1 || activeEventBuzzer == 5 || activeEventBuzzer == 2) { // OVERSPEED / HAZARD / TRACTN
+    // Urgent fast continuous beeping
+    if ((currentMillis / 100) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
+    else digitalWrite(BUZZER_PIN, LOW);
+  } else if (activeEventBuzzer == 1) { // OVERSPEED
     digitalWrite(LED_RED, LOW);
     digitalWrite(LED_YELLOW, HIGH);
     digitalWrite(LED_GREEN, LOW);
-    if ((currentMillis / 200) % 2 == 0) tone(BUZZER_PIN, 1000); // Slower warning beep
-    else noTone(BUZZER_PIN);
+    // Warning double-beep pattern
+    int cycle = currentMillis % 1000;
+    if (cycle < 100 || (cycle > 200 && cycle < 300)) digitalWrite(BUZZER_PIN, HIGH);
+    else digitalWrite(BUZZER_PIN, LOW);
+  } else if (activeEventBuzzer == 5 || activeEventBuzzer == 2) { // HAZARD / TRACTN
+    digitalWrite(LED_RED, LOW);
+    digitalWrite(LED_YELLOW, HIGH);
+    digitalWrite(LED_GREEN, LOW);
+    // Slow steady warning beep
+    if ((currentMillis / 500) % 2 == 0) digitalWrite(BUZZER_PIN, HIGH);
+    else digitalWrite(BUZZER_PIN, LOW);
   } else { // NORMAL
     digitalWrite(LED_RED, LOW);
     digitalWrite(LED_YELLOW, LOW);
     digitalWrite(LED_GREEN, HIGH);
-    noTone(BUZZER_PIN);
+    digitalWrite(BUZZER_PIN, LOW);
   }
   
   // 1. Handle Serial Data Non-Blocking
@@ -500,6 +429,9 @@ void loop() {
           
           // Broadcast via ESP-NOW
           esp_now_send(broadcastAddress, (uint8_t *) &myState, sizeof(myState));
+          
+          // Log local telemetry to blackbox SD
+          logBlackbox(myState);
         }
       }
     }
@@ -532,6 +464,7 @@ void loop() {
     myState.latitude = gps.location.isValid() ? gps.location.lat() : 0.0;
     myState.longitude = gps.location.isValid() ? gps.location.lng() : 0.0;
     esp_now_send(broadcastAddress, (uint8_t *) &myState, sizeof(myState));
+    logBlackbox(myState);
   }
   
   // Constantly feed the GPS parser

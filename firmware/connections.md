@@ -18,11 +18,15 @@ The ESP32 acts as a serial bridge transceiver. It uses a 0.96" OLED display (SSD
 | **LED Red**       | GPIO 26              | Status LED (Harsh Brake / Crash)          |
 | **Buzzer**        | GPIO 14              | Passive buzzer for auditory alerts        |
 | **GPS NEO-6M**    | 5V / VIN             | Power for GPS (Requires 5V for stability) |
+| **MicroSD CS**    | GPIO 5               | SPI Chip Select for SD Card Adapter       |
+| **MicroSD MOSI**  | GPIO 23              | VSPI MOSI for SD Card Adapter             |
+| **MicroSD MISO**  | GPIO 19              | VSPI MISO for SD Card Adapter             |
+| **MicroSD SCK**   | GPIO 18              | VSPI SCK for SD Card Adapter              |
 
-| **VCC**           | 3.3V                 | Power for OLED and MPU6500                |
+| **VCC**           | 3.3V / 5V            | Power for OLED, MPU, and SD Adapter       |
 | **GND**           | GND                  | Common ground for all components          |
 
-*(Note: The OLED uses the default I2C bus on pins 21/22. The MPU6500 uses a secondary hardware I2C bus (`Wire1`) assigned to pins 32/33.)*
+*(Note: The OLED uses the default I2C bus on pins 21/22. The MPU6500 uses a secondary hardware I2C bus (`Wire1`) assigned to pins 32/33. The MicroSD adapter uses the default VSPI bus.)*
 
 ## Future Expansion
 Later, you can add more hardware such as:
@@ -54,7 +58,12 @@ The Receiver node acts like the standard dashboard but receives data via LoRa in
 | **LED Green**     | GPIO 27              | Status LED (Normal / Safe)                |
 | **LED Yellow**    | GPIO 25              | Status LED (Overspeed / Ambulance)        |
 | **LED Red**       | **GPIO 2**           | Status LED (Harsh Brake / Crash) - *MOVED*|
-| **Buzzer**        | **GPIO 4**           | Passive buzzer for auditory alerts - *MOVED*|
+| **Buzzer**        | **GPIO 15**          | Passive buzzer for auditory alerts - *MOVED*|
+| **MPU (I2C 1)**   | GPIO 32 (SDA)        | Secondary I2C Data Line for MPU6050       |
+| **MPU (I2C 1)**   | GPIO 33 (SCL)        | Secondary I2C Clock Line for MPU6050      |
 | **LoRa NSS**      | GPIO 5               | SPI Chip Select for LoRa                  |
 | **LoRa RST**      | GPIO 14              | Reset for LoRa                            |
 | **LoRa DIO0**     | GPIO 26              | Interrupt for LoRa                        |
+| **LoRa MOSI**     | GPIO 23              | Standard VSPI MOSI                        |
+| **LoRa MISO**     | GPIO 19              | Standard VSPI MISO                        |
+| **LoRa SCK**      | GPIO 18              | Standard VSPI SCK                         |
